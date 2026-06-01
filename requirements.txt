@@ -1,0 +1,36 @@
+# ============================================================
+# realestate-channel — Python dependencies
+# ============================================================
+# Install: pip3 install -r requirements.txt
+# ============================================================
+
+# Core
+python-dotenv>=1.0.0        # loads .env into environment
+requests>=2.31.0            # HTTP calls to all APIs
+click>=8.1.0                # CLI interface for scripts
+
+# Content & text
+markdown>=3.5.0             # render/parse markdown scripts
+beautifulsoup4>=4.12.0      # parse web content for research
+feedparser>=6.0.10          # RSS feeds for news/trend monitoring
+
+# Data & reporting
+pandas>=2.0.0               # analytics data manipulation
+tabulate>=0.9.0             # pretty-print tables in terminal
+
+# Google / YouTube
+google-api-python-client>=2.100.0   # YouTube Data API
+google-auth>=2.23.0                 # Google auth
+google-auth-oauthlib>=1.1.0         # OAuth flow
+
+# Pipeline B (AI creation — install when ready)
+# elevenlabs>=1.0.0          # ElevenLabs voice synthesis
+# openai>=1.0.0              # fallback LLM if needed
+
+# Scheduling / publishing
+# postiz SDK has no official PyPI package — using requests directly
+# httpx>=0.25.0              # async HTTP (add if Postiz calls need async)
+
+# Dev utilities
+rich>=13.0.0                # beautiful terminal output
+python-dateutil>=2.8.0      # date parsing for scheduling
