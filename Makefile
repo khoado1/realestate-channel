@@ -79,6 +79,9 @@ pipeline-a: research script repurpose ## Run full Pipeline A sequence (research 
 # ============================================================
 # PIPELINE B — AI CREATION (stub, built in next phase)
 # ============================================================
+.PHONY: pipeline-b
+pipeline-b: ## Run full Pipeline B sequence (voice → video)
+	@echo "Pipeline B is under development. Run 'make help' for available commands."
 
 .PHONY: generate-voice
 generate-voice: ## Generate voiceover via ElevenLabs

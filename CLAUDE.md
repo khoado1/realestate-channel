@@ -3,13 +3,15 @@
 <!--
 Note: user has to set the following environment variables:
 
-BASE_CHANNEL = 'realestate-channel'
-BASE_CODE_DIR = '$HOME/$BASE_CHANNEL'
-BASE_CONTENT_DIR = '$HOME/Library/CloudStorage/GoogleDrive-do.khoa.d@gmail.com/My Drive/$BASE_CHANNEL'
+BASE_CHANNEL=realestate-channel
+BASE_CODE_DIR=$(HOME)/$(BASE_CHANNEL)
+BASE_CONTENT_DIR=$(HOME)/Library/CloudStorage/GoogleDrive-do.khoa.d@gmail.com/My Drive/$(BASE_CHANNEL)
 
-code:
-export BASE_CHANNEL 
-export CONTENT_BASE="$HOME/Library/CloudStorage/GoogleDrive-do.khoa.d@gmail.com/My Drive/realestate-channel"
+# Add to .env
+VIDEO_DIR=$HOME/OneDrive/realestate-channel/videos
+LONGFORM_DIR=$VIDEO_DIR/longform
+SHORTS_DIR=$VIDEO_DIR/shorts
+AUDIO_DIR=$VIDEO_DIR/audio
 
 -->
 
@@ -130,12 +132,12 @@ When pulling YouTube analytics:
 - If I tell you a script "doesn't sound like me" → ask me what specifically feels off before rewriting
 
 **File organization:**
-- Base Content Directory: BASE_CONTENT_DIRECTORY = '~/Library/CloudStorage/GoogleDrive-do.khoa.d@gmail.com/My Drive/realestate-channel'
+- BASE_CONTENT_DIRECTORY is $BASE_CONTENT_DIR
 - Set that as environment variable if not set
-- Scripts go in: $BASE_CONTENT_DIRECTORY/scripts/[YYYY-MM-DD]-[slug].md
-- Repurposed content goes in: $BASE_CONTENT_DIRECTORY/repurposed/[YYYY-MM-DD]-[slug]/
-- Analytics reports go in: $BASE_CONTENT_DIRECTORY/analytics/[YYYY-MM]/
-- Ideas backlog goes in: $BASE_CONTENT_DIRECTORY/ideas/backlog.md (append, never overwrite)
+- Scripts go in: $SCRIPTS_DIR/[YYYY-MM-DD]-[slug].md
+- Repurposed content goes in: $REPURPOSED_DIR/[YYYY-MM-DD]-[slug]/
+- Analytics reports go in: $ANALYTICS_DIR/[YYYY-MM]/
+- Ideas backlog goes in: $IDEAS_DIR/backlog.md (append, never overwrite)
 
 ---
 
@@ -153,4 +155,4 @@ When pulling YouTube analytics:
 _None yet — this will grow as we catch things._
 
 ---
-_Last updated: 05/31/2026 — update this whenever you make changes_
+_Last updated: 06/01/2026 — update this whenever you make changes_

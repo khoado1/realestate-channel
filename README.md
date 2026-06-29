@@ -7,6 +7,11 @@ git branch -M main
 git remote add origin https://github.com/khoado1/realestate-channel.git
 git push -u origin main
 
+3 directories:
+$HOME/$BASE_CHANNEL -> $BASE_CHANNEL = realestate-channel , This is where I setup the video production pipeline and code
+$HOME/Library/CloudStorage/OneDrive-Personal/BASE_CHANNEL -> This is where I store my files that are big like video and audio files
+'$HOME/Library/CloudStorage/GoogleDrive-do.khoa.d@gmail.com/My Drive/$BASE_CHANEL' -> This is where I store my content like scripts, ideas, analysis
+
 AI-powered YouTube content pipeline for real estate & loans content.
 
 ## Stack

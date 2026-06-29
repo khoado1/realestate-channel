@@ -34,3 +34,5 @@ google-auth-oauthlib>=1.1.0         # OAuth flow
 # Dev utilities
 rich>=13.0.0                # beautiful terminal output
 python-dateutil>=2.8.0      # date parsing for scheduling
+
+youtube-transcript-api>=0.0.4   # extract YouTube video transcripts
