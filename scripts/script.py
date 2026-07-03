@@ -28,9 +28,11 @@ from dotenv import load_dotenv
 # ── Load environment ──────────────────────────────────────────────────────────
 load_dotenv()
 
-CONTENT_DIR  = os.getenv("BASE_CONTENT_DIR", "")
-SCRIPTS_DIR  = os.getenv("SCRIPTS_DIR", os.path.join(CONTENT_DIR, "scripts"))
-IDEAS_DIR    = os.getenv("IDEAS_DIR", os.path.join(CONTENT_DIR, "ideas"))
+def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
+
+CONTENT_DIR  = _r(os.getenv("BASE_CONTENT_DIR", ""))
+SCRIPTS_DIR  = _r(os.getenv("SCRIPTS_DIR", os.path.join(CONTENT_DIR, "scripts")))
+IDEAS_DIR    = _r(os.getenv("IDEAS_DIR", os.path.join(CONTENT_DIR, "ideas")))
 CHANNEL_NAME = os.getenv("CHANNEL_NAME", "realestate-channel")
 
 BACKLOG_PATH = Path(IDEAS_DIR) / "backlog.md"

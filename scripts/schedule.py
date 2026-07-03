@@ -34,8 +34,10 @@ from dotenv import load_dotenv
 # ── Load environment ──────────────────────────────────────────────────────────
 load_dotenv()
 
-CONTENT_DIR    = os.getenv("BASE_CONTENT_DIR", "")
-REPURPOSED_DIR = os.getenv("REPURPOSED_DIR", os.path.join(CONTENT_DIR, "repurposed"))
+def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
+
+CONTENT_DIR    = _r(os.getenv("BASE_CONTENT_DIR", ""))
+REPURPOSED_DIR = _r(os.getenv("REPURPOSED_DIR", os.path.join(CONTENT_DIR, "repurposed")))
 POSTIZ_API_KEY = os.getenv("POSTIZ_API_KEY", "")
 CHANNEL_NAME   = os.getenv("CHANNEL_NAME", "realestate-channel")
 

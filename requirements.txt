@@ -1,38 +1,33 @@
 # ============================================================
 # realestate-channel — Python dependencies
 # ============================================================
-# Install: pip3 install -r requirements.txt
+# Install: uv pip install -r requirements.txt
 # ============================================================
 
 # Core
 python-dotenv>=1.0.0        # loads .env into environment
-requests>=2.31.0            # HTTP calls to all APIs
-click>=8.1.0                # CLI interface for scripts
+requests>=2.31.0            # HTTP calls to all APIs (YouTube, ElevenLabs, HeyGen, Postiz)
 
-# Content & text
-markdown>=3.5.0             # render/parse markdown scripts
-beautifulsoup4>=4.12.0      # parse web content for research
-feedparser>=6.0.10          # RSS feeds for news/trend monitoring
+# UI
+rich>=13.0.0                # terminal output formatting
 
-# Data & reporting
-pandas>=2.0.0               # analytics data manipulation
-tabulate>=0.9.0             # pretty-print tables in terminal
-
-# Google / YouTube
-google-api-python-client>=2.100.0   # YouTube Data API
-google-auth>=2.23.0                 # Google auth
-google-auth-oauthlib>=1.1.0         # OAuth flow
-
-# Pipeline B (AI creation — install when ready)
-# elevenlabs>=1.0.0          # ElevenLabs voice synthesis
-# openai>=1.0.0              # fallback LLM if needed
-
-# Scheduling / publishing
-# postiz SDK has no official PyPI package — using requests directly
-# httpx>=0.25.0              # async HTTP (add if Postiz calls need async)
+# Content
+youtube-transcript-api>=0.6.0   # fetch transcripts from YouTube videos (repurpose.py)
 
 # Dev utilities
-rich>=13.0.0                # beautiful terminal output
 python-dateutil>=2.8.0      # date parsing for scheduling
 
-youtube-transcript-api>=0.0.4   # extract YouTube video transcripts
+# ============================================================
+# Future / optional — uncomment when needed
+# ============================================================
+
+# Pipeline B — only if switching from REST to SDK
+# elevenlabs>=1.0.0          # ElevenLabs SDK (currently using REST API directly)
+
+# Analytics — only if switching from REST to Google client library
+# google-api-python-client>=2.100.0
+# google-auth>=2.23.0
+# google-auth-oauthlib>=1.1.0
+
+# Async HTTP — only if Postiz calls need async
+# httpx>=0.25.0

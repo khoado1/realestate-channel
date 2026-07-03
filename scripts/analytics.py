@@ -36,9 +36,11 @@ from dotenv import load_dotenv
 # ── Load environment ──────────────────────────────────────────────────────────
 load_dotenv()
 
-CONTENT_DIR        = os.getenv("BASE_CONTENT_DIR", "")
-ANALYTICS_DIR      = os.getenv("ANALYTICS_DIR", os.path.join(CONTENT_DIR, "analytics"))
-IDEAS_DIR          = os.getenv("IDEAS_DIR",     os.path.join(CONTENT_DIR, "ideas"))
+def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
+
+CONTENT_DIR        = _r(os.getenv("BASE_CONTENT_DIR", ""))
+ANALYTICS_DIR      = _r(os.getenv("ANALYTICS_DIR", os.path.join(CONTENT_DIR, "analytics")))
+IDEAS_DIR          = _r(os.getenv("IDEAS_DIR",     os.path.join(CONTENT_DIR, "ideas")))
 YOUTUBE_API_KEY    = os.getenv("YOUTUBE_API_KEY", "")
 YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", os.getenv("CHANNEL_ID", ""))
 CHANNEL_NAME       = os.getenv("CHANNEL_NAME", "realestate-channel")

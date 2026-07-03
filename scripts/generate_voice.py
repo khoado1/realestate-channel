@@ -35,10 +35,11 @@ from dotenv import load_dotenv
 # ── Load environment ──────────────────────────────────────────────────────────
 load_dotenv()
 
-CONTENT_DIR   = os.getenv("BASE_CONTENT_DIR", "")
-SCRIPTS_DIR   = os.getenv("SCRIPTS_DIR",   os.path.join(CONTENT_DIR, "scripts"))
-VIDEO_BASE    = os.getenv("VIDEO_BASE_DIR", "")
-AUDIO_DIR     = os.getenv("AUDIO_DIR",     os.path.join(VIDEO_BASE, "audio"))
+def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
+
+CONTENT_DIR   = _r(os.getenv("BASE_CONTENT_DIR", ""))
+SCRIPTS_DIR   = _r(os.getenv("SCRIPTS_DIR"))
+AUDIO_DIR     = _r(os.getenv("AUDIO_DIR"))
 
 ELEVENLABS_API_KEY          = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID         = os.getenv("ELEVENLABS_VOICE_ID", "")         # cloned voice
@@ -356,9 +357,6 @@ def main():
     args = parser.parse_args()
 
     # ── Validate ──
-    if not VIDEO_BASE:
-        print("✗ VIDEO_BASE_DIR not set. Check your .env file.")
-        sys.exit(1)
 
     # ── List voices mode ──
     if args.voices:
