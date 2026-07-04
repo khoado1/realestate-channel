@@ -31,19 +31,20 @@ import json
 import argparse
 from datetime import datetime, timedelta, date
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR        = _r(os.getenv("BASE_CONTENT_DIR", ""))
-ANALYTICS_DIR      = _r(os.getenv("ANALYTICS_DIR", os.path.join(CONTENT_DIR, "analytics")))
-IDEAS_DIR          = _r(os.getenv("IDEAS_DIR",     os.path.join(CONTENT_DIR, "ideas")))
-YOUTUBE_API_KEY    = os.getenv("YOUTUBE_API_KEY", "")
-YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", os.getenv("CHANNEL_ID", ""))
-CHANNEL_NAME       = os.getenv("CHANNEL_NAME", "realestate-channel")
+runtime = RuntimeConfig(
+    path_specs=[
+        ("ANALYTICS_DIR", lambda content_dir: os.path.join(content_dir, "analytics")),
+        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
+    ],
+    env_specs=[
+        ("YOUTUBE_API_KEY", ""),
+        (("YOUTUBE_CHANNEL_ID", "CHANNEL_ID"), ""),  # falls back to CHANNEL_ID
+        ("CHANNEL_NAME", "realestate-channel"),
+    ],
+)
 
 # ── Thresholds for flagging ───────────────────────────────────────────────────
 RETENTION_FLAG_LOW  = 0.50   # flag if avg view duration < 50% (hook problem)
@@ -71,7 +72,7 @@ def rrule(msg=""):     console.print(Rule(msg)) if RICH else print(f"\n--- {msg}
 def call_claude(prompt: str, max_tokens: int = 1000) -> str:
     import requests
 
-    system = f"""You are the analytics strategist for {CHANNEL_NAME}, a YouTube channel
+    system = f"""You are the analytics strategist for {runtime.CHANNEL_NAME}, a YouTube channel
 about real estate, mortgages, and loans. You analyze performance data and extract
 actionable content insights. Be specific and direct — no generic advice.
 Always tie observations back to content decisions: what to make more of,
@@ -102,11 +103,11 @@ def yt_request(endpoint: str, params: dict) -> dict:
     """Make a YouTube Data API v3 request."""
     import requests
 
-    if not YOUTUBE_API_KEY:
+    if not runtime.YOUTUBE_API_KEY:
         rprint("[red]✗ YOUTUBE_API_KEY not set in .env[/red]")
         sys.exit(1)
 
-    params["key"] = YOUTUBE_API_KEY
+    params["key"] = runtime.YOUTUBE_API_KEY
     url = f"https://www.googleapis.com/youtube/v3/{endpoint}"
 
     try:
@@ -131,13 +132,13 @@ def yt_analytics_request(params: dict) -> dict:
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 def fetch_channel_stats() -> dict:
     """Fetch channel-level statistics."""
-    if not YOUTUBE_CHANNEL_ID:
+    if not runtime.YOUTUBE_CHANNEL_ID:
         rprint("[yellow]⚠ YOUTUBE_CHANNEL_ID not set — using channel search[/yellow]")
         return {}
 
     data = yt_request("channels", {
         "part": "statistics,snippet,brandingSettings",
-        "id": YOUTUBE_CHANNEL_ID,
+        "id": runtime.YOUTUBE_CHANNEL_ID,
     })
 
     items = data.get("items", [])
@@ -147,7 +148,7 @@ def fetch_channel_stats() -> dict:
     item  = items[0]
     stats = item.get("statistics", {})
     return {
-        "channel_name":   item.get("snippet", {}).get("title", CHANNEL_NAME),
+        "channel_name":   item.get("snippet", {}).get("title", runtime.CHANNEL_NAME),
         "subscribers":    int(stats.get("subscriberCount", 0)),
         "total_views":    int(stats.get("viewCount", 0)),
         "total_videos":   int(stats.get("videoCount", 0)),
@@ -157,13 +158,13 @@ def fetch_channel_stats() -> dict:
 
 def fetch_recent_videos(max_results: int = 20) -> list[dict]:
     """Fetch recent uploads with stats."""
-    if not YOUTUBE_CHANNEL_ID:
+    if not runtime.YOUTUBE_CHANNEL_ID:
         return []
 
     # Get uploads playlist ID
     channel_data = yt_request("channels", {
         "part": "contentDetails",
-        "id": YOUTUBE_CHANNEL_ID,
+        "id": runtime.YOUTUBE_CHANNEL_ID,
     })
     items = channel_data.get("items", [])
     if not items:
@@ -329,7 +330,7 @@ def generate_insights(channel_stats: dict, analysis: dict, videos: list[dict]) -
     prompt = f"""Analyze this YouTube channel performance data and give 3-5 specific,
 actionable content insights. Focus on what to do differently, not just observations.
 
-Channel: {channel_stats.get('channel_name', CHANNEL_NAME)}
+Channel: {channel_stats.get('channel_name', runtime.CHANNEL_NAME)}
 Subscribers: {channel_stats.get('subscribers', 'unknown'):,}
 Total videos analyzed: {analysis.get('total_videos', 0)}
 Average views per video: {analysis.get('avg_views', 0):,}
@@ -363,7 +364,7 @@ def print_weekly_report(
     """Print weekly digest to terminal."""
     rpanel(
         f"[bold green]Weekly Analytics Report[/bold green]\n"
-        f"[dim]{channel_stats.get('channel_name', CHANNEL_NAME)} · "
+        f"[dim]{channel_stats.get('channel_name', runtime.CHANNEL_NAME)} · "
         f"{datetime.now().strftime('%Y-%m-%d')}[/dim]",
         width=56,
     )
@@ -458,13 +459,13 @@ def save_report(
     date_str  = datetime.now().strftime("%Y-%m-%d")
     month_str = datetime.now().strftime("%Y-%m")
     filename  = f"{date_str}-{mode}-report.md"
-    out_dir   = Path(ANALYTICS_DIR) / month_str
+    out_dir   = Path(runtime.ANALYTICS_DIR) / month_str
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path  = out_dir / filename
 
     lines = [
         f"# Analytics Report — {mode.title()} — {date_str}",
-        f"**Channel:** {channel_stats.get('channel_name', CHANNEL_NAME)}",
+        f"**Channel:** {channel_stats.get('channel_name', runtime.CHANNEL_NAME)}",
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "",
         "---",
@@ -539,7 +540,7 @@ def append_feedback_to_backlog(analysis: dict):
     Append performance signals to ideas/backlog.md as content feedback.
     This closes the feedback loop — analytics inform future research.
     """
-    backlog = Path(IDEAS_DIR) / "backlog.md"
+    backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     lines = [
@@ -583,13 +584,13 @@ def main():
     args = parser.parse_args()
 
     # ── Validate ──
-    if not CONTENT_DIR:
+    if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
         sys.exit(1)
-    if not YOUTUBE_API_KEY:
+    if not runtime.YOUTUBE_API_KEY:
         print("✗ YOUTUBE_API_KEY not set. Check your .env file.")
         sys.exit(1)
-    if not YOUTUBE_CHANNEL_ID:
+    if not runtime.YOUTUBE_CHANNEL_ID:
         print("✗ YOUTUBE_CHANNEL_ID not set. Add it to your .env file.")
         print("  Find it at: https://www.youtube.com/account_advanced")
         sys.exit(1)

@@ -23,19 +23,18 @@ import argparse
 import re
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
+runtime = RuntimeConfig(
+    path_specs=[
+        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
+        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
+    ],
+    env_specs=[("CHANNEL_NAME", "realestate-channel")],
+)
 
-CONTENT_DIR  = _r(os.getenv("BASE_CONTENT_DIR", ""))
-SCRIPTS_DIR  = _r(os.getenv("SCRIPTS_DIR", os.path.join(CONTENT_DIR, "scripts")))
-IDEAS_DIR    = _r(os.getenv("IDEAS_DIR", os.path.join(CONTENT_DIR, "ideas")))
-CHANNEL_NAME = os.getenv("CHANNEL_NAME", "realestate-channel")
-
-BACKLOG_PATH = Path(IDEAS_DIR) / "backlog.md"
+BACKLOG_PATH = Path(runtime.IDEAS_DIR) / "backlog.md"
 
 # ── Rich setup ────────────────────────────────────────────────────────────────
 try:
@@ -82,7 +81,7 @@ def call_claude(prompt: str, system: str, max_tokens: int = 1000) -> str:
 
 
 def build_system_prompt() -> str:
-    return f"""You are the head writer for {CHANNEL_NAME}, a YouTube channel about real estate,
+    return f"""You are the head writer for {runtime.CHANNEL_NAME}, a YouTube channel about real estate,
 mortgages, and loans. You write in a conversational, relatable tone — like a knowledgeable
 friend explaining things over coffee.
 
@@ -227,7 +226,7 @@ def pick_from_backlog() -> tuple[str, str]:
 
 def pick_from_latest_research() -> tuple[str, str]:
     """Pick a topic from the most recent research report. Returns (topic, angle)."""
-    scripts_path = Path(SCRIPTS_DIR)
+    scripts_path = Path(runtime.SCRIPTS_DIR)
     reports = sorted(scripts_path.glob("*-research-*.md"), reverse=True)
 
     if not reports:
@@ -308,7 +307,7 @@ def save_script(topic: str, longform: str, short: str, metadata: dict) -> str:
     date_str = datetime.now().strftime("%Y-%m-%d")
     slug = re.sub(r"[^a-z0-9]+", "-", topic.lower())[:40].strip("-")
     filename = f"{date_str}-{slug}-script.md"
-    out_path = Path(SCRIPTS_DIR) / filename
+    out_path = Path(runtime.SCRIPTS_DIR) / filename
 
     thumb = metadata.get("thumbnail_concept", {})
     chapters = metadata.get("chapters", [])
@@ -400,7 +399,7 @@ def main():
     args = parser.parse_args()
 
     # ── Validate environment ──
-    if not CONTENT_DIR:
+    if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
         sys.exit(1)
 

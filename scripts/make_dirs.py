@@ -1,45 +1,33 @@
 import os
 import sys
 from pathlib import Path
-import re
+
+from scripts.utils.path_utils import create_directories, resolve
 
 # debug: doppler run --project video_production --config dev -- python3 scripts/make_dirs.py
 
-def resolve(value: str) -> str:
-    if not value:
-        return ""
-    
-    # Convert $(VAR) syntax to $VAR syntax so expandvars() can expand it
-    normalized = re.sub(r'\$\(([^)]+)\)', r'$\1', value)
-    
-    return os.path.expandvars(os.path.expanduser(normalized))
+def run() -> None:
+    base_dir: str = "BASE_CONTENT_DIR"
 
-
-base = resolve(os.getenv("BASE_CONTENT_DIR", ""))
-
-if not base:
-    sys.exit(
-        "✗ BASE_CONTENT_DIR not set — is Doppler injecting vars? "
-        "Run: make env-check"
-    )
-
-dirs = [
-    resolve(os.getenv(key, ""))
-    for key in (
+    directory_keys: list[str] = [
         "SCRIPTS_DIR",
         "REPURPOSED_DIR",
         "ANALYTICS_DIR",
         "IDEAS_DIR",
-    )
-]
+    ]
 
-for directory in dirs:
-    if directory:
-        Path(directory).mkdir(parents=True, exist_ok=True)
+    touch_keys: dict[str, str] = {
+        "IDEAS_DIR": "backlog.md",
+    }
 
-ideas = resolve(os.getenv("IDEAS_DIR", ""))
+    try:
+        create_directories(base_dir, directory_keys, touch_keys)
+    except ValueError as exc:
+        sys.exit(f"✗ {exc} Run: make env-check")
 
-if ideas:
-    Path(ideas, "backlog.md").touch(exist_ok=True)
+    base_path: str = resolve(os.getenv(base_dir, ""))
+    print(f"✓ Content directories created at {base_path}")
 
-print(f"✓ Content directories created at {base}")
+
+if __name__ == "__main__":
+    run()

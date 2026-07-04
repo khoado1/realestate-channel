@@ -25,37 +25,11 @@ install: ## Install Python dependencies via uv
 
 .PHONY: setup
 setup: install ## First-time setup: install deps + verify environment
-	@echo "Checking Python deps..."
-	@$(PYTHON) -c "import dotenv; print('✓ python-dotenv')"
-	@$(PYTHON) -c "import requests; print('✓ requests')"
-	@$(PYTHON) -c "import rich; print('✓ rich')"
-	@$(PYTHON) -c "import youtube_transcript_api; print('✓ youtube-transcript-api')"
-	@$(PYTHON) -c "import dateutil; print('✓ python-dateutil')"
-	@echo ""
-	@echo "Checking Doppler..."
-	@doppler --version 2>/dev/null && echo "✓ doppler CLI installed" || echo "✗ doppler not found — install from doppler.com/cli"
-	@doppler me 2>/dev/null && echo "✓ doppler authenticated" || echo "✗ doppler not authenticated — run: doppler login"
-	@echo ""
-	@echo "Checking paths..."
-	@$(DOPPLER) $(PYTHON) -c "import os; d=os.getenv('BASE_CONTENT_DIR',''); print('✓ BASE_CONTENT_DIR:', d) if d else print('✗ BASE_CONTENT_DIR not set')"
-	@$(DOPPLER) $(PYTHON) -c "import os; d=os.getenv('SCRIPTS_DIR',''); print('✓ SCRIPTS_DIR:', d) if d else print('✗ SCRIPTS_DIR not set')"
-	@echo ""
-	@echo "Setup complete. Run 'make dirs' to create content folders, then 'make help'."
+	$(DOPPLER) $(PYTHON) -m scripts.setup_check
 
 .PHONY: dirs
 dirs: ## Create Google Drive content folder structure
-	$(DOPPLER) $(PYTHON) -c "\
-import os, sys; \
-from pathlib import Path; \
-def resolve(v): return os.path.expandvars(os.path.expanduser(v)) if v else ''; \
-base = resolve(os.getenv('BASE_CONTENT_DIR', '')); \
-sys.exit('✗ BASE_CONTENT_DIR not set — is Doppler injecting vars? Run: make env-check') if not base else None; \
-dirs = [resolve(os.getenv(k,'')) for k in ('SCRIPTS_DIR','REPURPOSED_DIR','ANALYTICS_DIR','IDEAS_DIR')]; \
-[Path(d).mkdir(parents=True, exist_ok=True) for d in dirs if d]; \
-ideas = resolve(os.getenv('IDEAS_DIR','')); \
-open(os.path.join(ideas, 'backlog.md'), 'a').close() if ideas else None; \
-print('✓ Content directories created at', base) \
-"
+	$(DOPPLER) $(PYTHON) -m scripts.make_dirs
 
 # ============================================================
 # PIPELINE A — CONTENT OPERATION
@@ -63,23 +37,23 @@ print('✓ Content directories created at', base) \
 
 .PHONY: research
 research: ## Research and generate ranked video ideas
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/research.py
+	$(DOPPLER) $(PYTHON) -m scripts.research
 
 .PHONY: script
 script: ## Generate a video script (prompts for topic)
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/script.py
+	$(DOPPLER) $(PYTHON) -m scripts.script
 
 .PHONY: repurpose
 repurpose: ## Repurpose a YouTube video into cross-platform content
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/repurpose.py
+	$(DOPPLER) $(PYTHON) -m scripts.repurpose
 
 .PHONY: schedule
 schedule: ## Schedule content via Postiz (requires review first)
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/schedule.py
+	$(DOPPLER) $(PYTHON) -m scripts.schedule
 
 .PHONY: analytics
 analytics: ## Pull YouTube analytics and generate weekly report
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/analytics.py
+	$(DOPPLER) $(PYTHON) -m scripts.analytics
 
 .PHONY: pipeline-a
 pipeline-a: research script repurpose ## Run full Pipeline A sequence (research → script → repurpose)
@@ -93,11 +67,11 @@ pipeline-b: ## Run full Pipeline B sequence (voice → video)
 
 .PHONY: generate-voice
 generate-voice: ## Generate voiceover via ElevenLabs
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/generate_voice.py
+	$(DOPPLER) $(PYTHON) -m scripts.generate_voice
 
 .PHONY: generate-video
 generate-video: ## Generate avatar video via HeyGen
-	$(DOPPLER) $(PYTHON) $(SCRIPTS)/generate_video.py
+	$(DOPPLER) $(PYTHON) -m scripts.generate_video
 
 .PHONY: pipeline-b
 pipeline-b: generate-voice generate-video ## Run full Pipeline B sequence (voice → video)
@@ -120,19 +94,7 @@ checkpoint: ## Quick checkpoint commit (auto-message with timestamp)
 
 .PHONY: env-check
 env-check: ## Verify all env vars are injected correctly via Doppler
-	@$(DOPPLER) $(PYTHON) -c "\
-import os; \
-vars = { \
-    'BASE_CONTENT_DIR':   os.getenv('BASE_CONTENT_DIR'), \
-    'CHANNEL_NAME':       os.getenv('CHANNEL_NAME'), \
-    'CHANNEL_ID':         os.getenv('CHANNEL_ID'), \
-    'YOUTUBE_API_KEY':    os.getenv('YOUTUBE_API_KEY'), \
-    'POSTIZ_API_KEY':     os.getenv('POSTIZ_API_KEY'), \
-    'ELEVENLABS_API_KEY': os.getenv('ELEVENLABS_API_KEY'), \
-    'HEYGEN_API_KEY':     os.getenv('HEYGEN_API_KEY'), \
-}; \
-[print(f'  {\"✓\" if v else \"✗\"} {k}: {v[:6]+\"...\" if v and \"KEY\" in k else (v or \"MISSING\")}') for k,v in vars.items()] \
-"
+	$(DOPPLER) $(PYTHON) -m scripts.env_check
 
 .PHONY: help
 help: ## Show this help

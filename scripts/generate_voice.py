@@ -30,16 +30,15 @@ import re
 import argparse
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR   = _r(os.getenv("BASE_CONTENT_DIR", ""))
-SCRIPTS_DIR   = _r(os.getenv("SCRIPTS_DIR"))
-AUDIO_DIR     = _r(os.getenv("AUDIO_DIR"))
+runtime = RuntimeConfig(
+    path_specs=[
+        ("SCRIPTS_DIR", ""),
+        ("AUDIO_DIR", ""),
+    ],
+)
 
 ELEVENLABS_API_KEY          = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID         = os.getenv("ELEVENLABS_VOICE_ID", "")         # cloned voice
@@ -292,7 +291,7 @@ def check_usage() -> dict:
 # ── Script file selection ─────────────────────────────────────────────────────
 def pick_script_file() -> Path:
     """Let user pick from available script files."""
-    scripts = sorted(Path(SCRIPTS_DIR).glob("*-script.md"), reverse=True)
+    scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
         sys.exit(1)
@@ -312,7 +311,7 @@ def pick_script_file() -> Path:
 
 def get_latest_script() -> Path:
     """Auto-select most recent script file."""
-    scripts = sorted(Path(SCRIPTS_DIR).glob("*-script.md"), reverse=True)
+    scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
         sys.exit(1)
@@ -389,7 +388,7 @@ def main():
         script_path = Path(args.script)
         if not script_path.exists():
             # Try finding in SCRIPTS_DIR
-            matches = list(Path(SCRIPTS_DIR).glob(f"*{Path(args.script).stem}*"))
+            matches = list(Path(runtime.SCRIPTS_DIR).glob(f"*{Path(args.script).stem}*"))
             if matches:
                 script_path = sorted(matches)[-1]
             else:
@@ -411,7 +410,7 @@ def main():
     # Remove trailing -script from slug if present
     slug     = re.sub(r"-script$", "", slug)
 
-    audio_dir = Path(AUDIO_DIR)
+    audio_dir = Path(runtime.AUDIO_DIR)
 
     results = []
 
@@ -474,7 +473,7 @@ def main():
         if not args.dry_run:
             succeeded = [r for r in results if r["success"]]
             if succeeded:
-                rprint(f"\n[dim]Audio files saved to: {AUDIO_DIR}[/dim]")
+                rprint(f"\n[dim]Audio files saved to: {runtime.AUDIO_DIR}[/dim]")
                 rprint(f"[dim]Next step: run generate_video.py to render the video[/dim]")
                 rprint(f"[dim]           make generate-video[/dim]")
     else:

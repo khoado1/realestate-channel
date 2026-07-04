@@ -20,20 +20,19 @@ import sys
 import argparse
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR   = _r(os.getenv("BASE_CONTENT_DIR", ""))
-SCRIPTS_DIR   = _r(os.getenv("SCRIPTS_DIR", os.path.join(CONTENT_DIR, "scripts")))
-IDEAS_DIR     = _r(os.getenv("IDEAS_DIR", os.path.join(CONTENT_DIR, "ideas")))
-CHANNEL_NAME  = os.getenv("CHANNEL_NAME", "realestate-channel")
+runtime = RuntimeConfig(
+    path_specs=[
+        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
+        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
+    ],
+    env_specs=[("CHANNEL_NAME", "realestate-channel")],
+)
 
 # Watchlist file — add topics here for --auto mode
-WATCHLIST_PATH = Path(IDEAS_DIR) / "watchlist.md"
+WATCHLIST_PATH = Path(runtime.IDEAS_DIR) / "watchlist.md"
 
 # ── Try importing rich for pretty output ─────────────────────────────────────
 try:
@@ -108,7 +107,7 @@ def call_claude(prompt: str, system: str = "") -> str:
 
 
 def build_system_prompt() -> str:
-    return f"""You are the research assistant for {CHANNEL_NAME}, a YouTube channel about
+    return f"""You are the research assistant for {runtime.CHANNEL_NAME}, a YouTube channel about
 real estate, mortgages, and loans. Your audience is intermediate — they've done research
 but haven't done a deal yet. Tone is conversational and relatable, like a knowledgeable friend.
 
@@ -230,7 +229,7 @@ def save_results(results: dict[str, list[dict]], topics: list[str]):
     date_str  = datetime.now().strftime("%Y-%m-%d")
     slug      = topics[0].lower().replace(" ", "-")[:30] if len(topics) == 1 else "multi-topic"
     filename  = f"{date_str}-research-{slug}.md"
-    out_path  = Path(SCRIPTS_DIR) / filename
+    out_path  = Path(runtime.SCRIPTS_DIR) / filename
 
     # Build markdown
     lines = [
@@ -290,7 +289,7 @@ def append_to_backlog(results: dict[str, list[dict]]):
         lines.append("")
 
     try:
-        backlog = Path(IDEAS_DIR) / "backlog.md"
+        backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
         backlog.parent.mkdir(parents=True, exist_ok=True)
         with open(backlog, "a", encoding="utf-8") as f:
             f.write("\n".join(lines))
@@ -340,7 +339,7 @@ def main():
     args = parser.parse_args()
 
     # ── Validate environment ──
-    if not CONTENT_DIR:
+    if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
         sys.exit(1)
 
@@ -389,10 +388,10 @@ def main():
         if saved_path:
             if RICH:
                 console.print(f"[green]✓ Saved:[/green] {saved_path}")
-                console.print(f"[green]✓ Backlog updated:[/green] {IDEAS_DIR}/backlog.md")
+                console.print(f"[green]✓ Backlog updated:[/green] {runtime.IDEAS_DIR}/backlog.md")
             else:
                 print(f"✓ Saved: {saved_path}")
-                print(f"✓ Backlog updated: {IDEAS_DIR}/backlog.md")
+                print(f"✓ Backlog updated: {runtime.IDEAS_DIR}/backlog.md")
 
 
 if __name__ == "__main__":

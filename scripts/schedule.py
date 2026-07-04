@@ -29,17 +29,18 @@ import json
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR    = _r(os.getenv("BASE_CONTENT_DIR", ""))
-REPURPOSED_DIR = _r(os.getenv("REPURPOSED_DIR", os.path.join(CONTENT_DIR, "repurposed")))
-POSTIZ_API_KEY = os.getenv("POSTIZ_API_KEY", "")
-CHANNEL_NAME   = os.getenv("CHANNEL_NAME", "realestate-channel")
+runtime = RuntimeConfig(
+    path_specs=[
+        ("REPURPOSED_DIR", lambda content_dir: os.path.join(content_dir, "repurposed")),
+    ],
+    env_specs=[
+        ("POSTIZ_API_KEY", ""),
+        ("CHANNEL_NAME", "realestate-channel"),
+    ],
+)
 
 POSTIZ_BASE_URL = "https://api.postiz.com/public/v1"
 
@@ -85,12 +86,12 @@ def postiz_request(method: str, endpoint: str, payload: dict = None) -> dict:
     """Make a request to the Postiz API."""
     import requests
 
-    if not POSTIZ_API_KEY:
+    if not runtime.POSTIZ_API_KEY:
         rprint("[red]✗ POSTIZ_API_KEY not set in .env[/red]")
         sys.exit(1)
 
     headers = {
-        "Authorization": f"Bearer {POSTIZ_API_KEY}",
+        "Authorization": f"Bearer {runtime.POSTIZ_API_KEY}",
         "Content-Type": "application/json",
     }
     url = f"{POSTIZ_BASE_URL}/{endpoint.lstrip('/')}"
@@ -260,7 +261,7 @@ def push_short_to_queue(script: str, as_draft: bool, dry_run: bool) -> dict:
     Add Short script to a local queue file.
     Shorts require a video file — this queues the script for Pipeline B / manual recording.
     """
-    queue_path = Path(REPURPOSED_DIR) / "shorts-queue.md"
+    queue_path = Path(runtime.REPURPOSED_DIR) / "shorts-queue.md"
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     entry = f"\n## {date_str}\n**Status:** {'draft' if as_draft else 'ready to record'}\n\n{script}\n\n---"
@@ -279,7 +280,7 @@ def push_short_to_queue(script: str, as_draft: bool, dry_run: bool) -> dict:
 def pick_repurposed_folder() -> Path:
     """Let user pick from available repurposed folders."""
     folders = sorted(
-        [f for f in Path(REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
+        [f for f in Path(runtime.REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
         reverse=True
     )
 
@@ -304,7 +305,7 @@ def pick_repurposed_folder() -> Path:
 def get_latest_folder() -> Path:
     """Auto-select most recent repurposed folder."""
     folders = sorted(
-        [f for f in Path(REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
+        [f for f in Path(runtime.REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
         reverse=True
     )
     if not folders:
@@ -316,7 +317,7 @@ def get_latest_folder() -> Path:
 # ── Schedule log ──────────────────────────────────────────────────────────────
 def append_schedule_log(folder: Path, results: list[dict], as_draft: bool):
     """Append a record of this scheduling run to schedule-log.md."""
-    log_path = Path(REPURPOSED_DIR) / "schedule-log.md"
+    log_path = Path(runtime.REPURPOSED_DIR) / "schedule-log.md"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     mode = "DRAFT" if as_draft else "SCHEDULED"
 
@@ -383,7 +384,7 @@ def main():
     args = parser.parse_args()
 
     # ── Validate environment ──
-    if not CONTENT_DIR:
+    if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
         sys.exit(1)
 
@@ -437,7 +438,7 @@ def main():
 
     # ── Fetch Postiz channels (for channel ID mapping) ──
     channel_map = {}
-    if not dry_run and POSTIZ_API_KEY:
+    if not dry_run and runtime.POSTIZ_API_KEY:
         rprint("\n[dim]Fetching Postiz channels...[/dim]")
         channels = get_postiz_channels()
         for ch in channels:
@@ -477,7 +478,7 @@ def main():
     # ── Log ──
     if not dry_run:
         append_schedule_log(folder, results, as_draft)
-        rprint(f"[dim]✓ Logged to: {REPURPOSED_DIR}/schedule-log.md[/dim]")
+        rprint(f"[dim]✓ Logged to: {runtime.REPURPOSED_DIR}/schedule-log.md[/dim]")
 
 
 if __name__ == "__main__":

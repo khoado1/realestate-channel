@@ -38,19 +38,18 @@ import time
 import argparse
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR  = _r(os.getenv("BASE_CONTENT_DIR", ""))
-SCRIPTS_DIR  = _r(os.getenv("SCRIPTS_DIR", os.path.join(CONTENT_DIR, "scripts")))
-VIDEO_DIR   = _r(os.getenv("VIDEO_DIR", ""))
-AUDIO_DIR    = _r(os.getenv("AUDIO_DIR"))
-LONGFORM_DIR = _r(os.getenv("LONGFORM_DIR"))
-SHORTS_DIR   = _r(os.getenv("SHORTS_DIR"))
+runtime = RuntimeConfig(
+    path_specs=[
+        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
+        ("VIDEO_DIR", ""),
+        ("AUDIO_DIR", ""),
+        ("LONGFORM_DIR", ""),
+        ("SHORTS_DIR", ""),
+    ],
+)
 
 HEYGEN_API_KEY   = os.getenv("HEYGEN_API_KEY", "")
 HEYGEN_AVATAR_ID = os.getenv("HEYGEN_AVATAR_ID", "")         # custom avatar (set after creation)
@@ -61,7 +60,7 @@ ELEVENLABS_VOICE_ID  = os.getenv("ELEVENLABS_VOICE_ID", "")
 HEYGEN_BASE_URL      = "https://api.heygen.com"
 HYPERFRAMES_BASE_URL = "https://api.hyperframes.ai/v1"  # update if endpoint changes
 
-RENDER_LOG = Path(VIDEO_DIR) / "render-log.md" if VIDEO_DIR else Path("render-log.md")
+RENDER_LOG = Path(runtime.VIDEO_DIR) / "render-log.md" if runtime.VIDEO_DIR else Path("render-log.md")
 
 # ── HeyGen defaults ───────────────────────────────────────────────────────────
 # Stock avatar used as fallback until custom avatar is created
@@ -462,7 +461,7 @@ def load_short_script(audio_path: Path) -> str:
     slug = re.sub(r"-short\.mp3$", "", audio_path.name)
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)  # strip date prefix
 
-    matches = list(Path(SCRIPTS_DIR).glob(f"*{slug}*-script.md"))
+    matches = list(Path(runtime.SCRIPTS_DIR).glob(f"*{slug}*-script.md"))
     if not matches:
         return ""
 
@@ -487,9 +486,9 @@ def pick_audio_files(mode: str) -> list[Path]:
     Let user pick audio files from AUDIO_DIR.
     mode: 'longform' | 'short' | 'both' | 'interactive'
     """
-    audio_dir = Path(AUDIO_DIR)
+    audio_dir = Path(runtime.AUDIO_DIR)
     if not audio_dir.exists():
-        rprint(f"[red]✗ Audio directory not found: {AUDIO_DIR}[/red]")
+        rprint(f"[red]✗ Audio directory not found: {runtime.AUDIO_DIR}[/red]")
         rprint("[dim]  Run generate_voice.py first: make generate-voice[/dim]")
         sys.exit(1)
 
@@ -531,9 +530,9 @@ def pick_audio_files(mode: str) -> list[Path]:
 
 def get_latest_audio(mode: str) -> list[Path]:
     """Auto-select most recent audio files."""
-    audio_dir = Path(AUDIO_DIR)
+    audio_dir = Path(runtime.AUDIO_DIR)
     if not audio_dir.exists():
-        rprint(f"[red]✗ Audio directory not found: {AUDIO_DIR}[/red]")
+        rprint(f"[red]✗ Audio directory not found: {runtime.AUDIO_DIR}[/red]")
         sys.exit(1)
 
     all_files      = sorted(audio_dir.glob("*.mp3"), reverse=True)
@@ -622,7 +621,7 @@ def main():
         sys.exit(0)
 
     # ── Validate ──
-    if not VIDEO_DIR:
+    if not runtime.VIDEO_DIR:
         print("✗ VIDEO_DIR not set. Check your .env file.")
         sys.exit(1)
 
@@ -707,7 +706,7 @@ def main():
 
         # ── Long-form: HeyGen ──
         if ftype == "longform":
-            out_path = Path(LONGFORM_DIR) / f"{date_str}-{slug}-longform.mp4"
+            out_path = Path(runtime.LONGFORM_DIR) / f"{date_str}-{slug}-longform.mp4"
 
             job_id = submit_heygen_video(
                 audio_path, avatar_id, title, args.dry_run
@@ -732,7 +731,7 @@ def main():
 
         # ── Short: HyperFrames ──
         elif ftype == "short":
-            out_path   = Path(SHORTS_DIR) / f"{date_str}-{slug}-short.mp4"
+            out_path   = Path(runtime.SHORTS_DIR) / f"{date_str}-{slug}-short.mp4"
             short_text = load_short_script(audio_path)
 
             if not short_text:

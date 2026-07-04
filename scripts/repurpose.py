@@ -26,18 +26,19 @@ import json
 import argparse
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# ── Load environment ──────────────────────────────────────────────────────────
-load_dotenv()
+from scripts.runtime import RuntimeConfig
 
-def _r(v): return os.path.expandvars(os.path.expanduser(v)) if v else ""
-
-CONTENT_DIR    = _r(os.getenv("BASE_CONTENT_DIR", ""))
-SCRIPTS_DIR    = _r(os.getenv("SCRIPTS_DIR",    os.path.join(CONTENT_DIR, "scripts")))
-REPURPOSED_DIR = _r(os.getenv("REPURPOSED_DIR", os.path.join(CONTENT_DIR, "repurposed")))
-CHANNEL_NAME   = os.getenv("CHANNEL_NAME", "realestate-channel")
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+runtime = RuntimeConfig(
+    path_specs=[
+        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
+        ("REPURPOSED_DIR", lambda content_dir: os.path.join(content_dir, "repurposed")),
+    ],
+    env_specs=[
+        ("CHANNEL_NAME", "realestate-channel"),
+        ("YOUTUBE_API_KEY", ""),
+    ],
+)
 
 # ── Rich setup ────────────────────────────────────────────────────────────────
 try:
@@ -82,7 +83,7 @@ def call_claude(prompt: str, system: str, max_tokens: int = 1000) -> str:
 
 
 def build_system_prompt() -> str:
-    return f"""You are the content repurposing strategist for {CHANNEL_NAME}, a YouTube channel
+    return f"""You are the content repurposing strategist for {runtime.CHANNEL_NAME}, a YouTube channel
 about real estate, mortgages, and loans.
 
 Audience: Intermediate — researched but haven't done a deal yet.
@@ -144,12 +145,12 @@ def fetch_youtube_transcript(url: str) -> tuple[str, str]:
         rprint(f"[yellow]⚠ Could not fetch transcript: {e}[/yellow]")
 
     # Fetch title via YouTube Data API if key is set
-    if YOUTUBE_API_KEY:
+    if runtime.YOUTUBE_API_KEY:
         try:
             import requests
             resp = requests.get(
                 "https://www.googleapis.com/youtube/v3/videos",
-                params={"part": "snippet", "id": vid_id, "key": YOUTUBE_API_KEY},
+                params={"part": "snippet", "id": vid_id, "key": runtime.YOUTUBE_API_KEY},
                 timeout=10,
             )
             data = resp.json()
@@ -188,7 +189,7 @@ def load_script_file(path: str) -> tuple[str, str]:
     p = Path(path)
     if not p.exists():
         # Try searching SCRIPTS_DIR for partial match
-        matches = list(Path(SCRIPTS_DIR).glob(f"*{Path(path).stem}*"))
+        matches = list(Path(runtime.SCRIPTS_DIR).glob(f"*{Path(path).stem}*"))
         if matches:
             p = sorted(matches)[-1]
             rprint(f"[dim]Found: {p.name}[/dim]")
@@ -215,7 +216,7 @@ def load_script_file(path: str) -> tuple[str, str]:
 
 def pick_latest_script() -> tuple[str, str]:
     """Auto-pick the most recent script file from SCRIPTS_DIR."""
-    scripts = sorted(Path(SCRIPTS_DIR).glob("*-script.md"), reverse=True)
+    scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
         sys.exit(1)
@@ -323,7 +324,7 @@ def save_repurposed(
     """Save all repurposed content. Returns output directory path."""
     date_str = datetime.now().strftime("%Y-%m-%d")
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower())[:40].strip("-")
-    out_dir = Path(REPURPOSED_DIR) / f"{date_str}-{slug}"
+    out_dir = Path(runtime.REPURPOSED_DIR) / f"{date_str}-{slug}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -430,7 +431,7 @@ def main():
     args = parser.parse_args()
 
     # ── Validate environment ──
-    if not CONTENT_DIR:
+    if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
         sys.exit(1)
 
