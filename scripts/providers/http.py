@@ -6,14 +6,20 @@ recorder via ``set_recorder``; until then the recorder is a no-op and nothing
 is persisted.
 """
 
+import contextvars
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
 from scripts.providers.base import ProviderError
 
-# Phase 3 replaces this with the call store's recorder. Signature: (dict) -> None.
+# The call store installs its recorder here. Signature: (dict) -> None.
 _recorder: Callable[[dict], None] | None = None
+
+# Per-call metadata (provider/kind/operation/model) set by providers around a
+# call and merged into the record — keeps this module generic.
+_ctx: contextvars.ContextVar[dict] = contextvars.ContextVar("call_ctx", default={})
 
 
 def set_recorder(fn: Callable[[dict], None] | None) -> None:
@@ -22,11 +28,21 @@ def set_recorder(fn: Callable[[dict], None] | None) -> None:
     _recorder = fn
 
 
+@contextmanager
+def call_context(**meta):
+    """Annotate calls made within this block (provider, kind, operation, model)."""
+    token = _ctx.set({**_ctx.get(), **meta})
+    try:
+        yield
+    finally:
+        _ctx.reset(token)
+
+
 def _record(entry: dict) -> None:
     if _recorder is None:
         return
     try:
-        _recorder(entry)
+        _recorder({**_ctx.get(), **entry})
     except Exception:
         # Recording must never break the primary call flow.
         pass
@@ -49,7 +65,7 @@ def request_json(
     import requests
 
     started = time.time()
-    status = resp = None
+    status = resp = response = None
     error = None
     try:
         resp = requests.request(
@@ -57,8 +73,8 @@ def request_json(
         )
         status = resp.status_code
         resp.raise_for_status()
-        data = resp.json()
-        return data
+        response = resp.json()
+        return response
     except requests.exceptions.HTTPError as exc:
         body = resp.text[:300] if resp is not None else ""
         error = f"HTTP {status}: {body}"
@@ -72,7 +88,8 @@ def request_json(
                 "method": method.upper(),
                 "url": url,
                 "params": params,
-                "request": json,
+                "request": json,  # JSON body only; raw `data=` bodies are binary (not recorded)
+                "response": response,
                 "http_status": status,
                 "error": error,
                 "latency_ms": int((time.time() - started) * 1000),

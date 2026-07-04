@@ -15,6 +15,7 @@ CONTENT_SUBDIRS: dict[str, str] = {
     "IDEAS_DIR":      "ideas",
     "ANALYTICS_DIR":  "analytics",
     "REPURPOSED_DIR": "repurposed",
+    "DATA_DIR":       ".data",   # call store (sqlite + artifacts)
 }
 
 # Path env vars with no content-relative default — resolved straight from the

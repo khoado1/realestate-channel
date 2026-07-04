@@ -39,7 +39,8 @@ class ClaudeProvider(AIProvider):
         if system:
             payload["system"] = system
 
-        data = http.request_json("POST", API_URL, headers=headers, json=payload, timeout=timeout)
+        with http.call_context(provider="claude", kind="ai", operation="complete", model=MODEL):
+            data = http.request_json("POST", API_URL, headers=headers, json=payload, timeout=timeout)
         return "\n".join(
             b["text"] for b in data.get("content", []) if b.get("type") == "text"
         )

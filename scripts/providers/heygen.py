@@ -34,9 +34,10 @@ class HeyGenProvider(VideoProvider):
 
     def upload_audio(self, audio_path: Path) -> str:
         headers = {"X-Api-Key": self._key(), "Content-Type": "audio/mpeg"}
-        data = http.request_json(
-            "POST", f"{BASE_URL}/v1/asset", headers=headers, data=audio_path.read_bytes(), timeout=120
-        )
+        with http.call_context(provider="heygen", kind="video", operation="upload_audio"):
+            data = http.request_json(
+                "POST", f"{BASE_URL}/v1/asset", headers=headers, data=audio_path.read_bytes(), timeout=120
+            )
         asset_id = data.get("data", {}).get("id") or data.get("id", "")
         if not asset_id:
             raise ProviderError(f"No asset ID in HeyGen response: {data}")
@@ -61,9 +62,10 @@ class HeyGenProvider(VideoProvider):
             "title": req.title[:50],
         }
         headers = {"X-Api-Key": self._key(), "Content-Type": "application/json"}
-        data = http.request_json(
-            "POST", f"{BASE_URL}/v2/video/generate", headers=headers, json=payload, timeout=60
-        )
+        with http.call_context(provider="heygen", kind="video", operation="submit"):
+            data = http.request_json(
+                "POST", f"{BASE_URL}/v2/video/generate", headers=headers, json=payload, timeout=60
+            )
         job_id = data.get("data", {}).get("video_id") or data.get("video_id", "")
         if not job_id:
             raise ProviderError(f"No job ID in HeyGen response: {data}")
@@ -71,9 +73,10 @@ class HeyGenProvider(VideoProvider):
 
     def status(self, job_id: str) -> VideoStatus:
         headers = {"X-Api-Key": self._key(), "Content-Type": "application/json"}
-        data = http.request_json(
-            "GET", f"{BASE_URL}/v1/video_status.get?video_id={job_id}", headers=headers, timeout=60
-        )
+        with http.call_context(provider="heygen", kind="video", operation="status"):
+            data = http.request_json(
+                "GET", f"{BASE_URL}/v1/video_status.get?video_id={job_id}", headers=headers, timeout=60
+            )
         d = data.get("data", {})
         state = d.get("status", "")
         if state == "completed":

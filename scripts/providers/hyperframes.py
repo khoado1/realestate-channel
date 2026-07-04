@@ -32,12 +32,14 @@ class HyperFramesProvider(VideoProvider):
             "style": "professional",  # professional | dynamic | minimal
             "topic": "real_estate",   # helps their visual matching
         }
-        data = http.request_json("POST", f"{BASE_URL}/generate", headers=self._headers(), json=payload, timeout=60)
+        with http.call_context(provider="hyperframes", kind="video", operation="submit"):
+            data = http.request_json("POST", f"{BASE_URL}/generate", headers=self._headers(), json=payload, timeout=60)
         # May legitimately be empty — the caller decides how to handle a no-id response.
         return data.get("job_id") or data.get("id", "")
 
     def status(self, job_id: str) -> VideoStatus:
-        data = http.request_json("GET", f"{BASE_URL}/status/{job_id}", headers=self._headers(), timeout=60)
+        with http.call_context(provider="hyperframes", kind="video", operation="status"):
+            data = http.request_json("GET", f"{BASE_URL}/status/{job_id}", headers=self._headers(), timeout=60)
         state = data.get("status", "")
         if state in ("completed", "done", "ready"):
             return VideoStatus("completed", video_url=data.get("video_url") or data.get("output_url", ""))

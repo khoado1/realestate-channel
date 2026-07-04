@@ -30,23 +30,26 @@ class ElevenLabsProvider(AudioProvider):
     def synthesize(self, text: str, voice_id: str, out_path: Path, *, timeout: int = 120) -> int:
         headers = self._headers({"Content-Type": "application/json", "Accept": "audio/mpeg"})
         payload = {"text": text, "model_id": MODEL, "voice_settings": VOICE_SETTINGS}
-        return http.stream_to_file(
-            "POST",
-            f"{BASE_URL}/text-to-speech/{voice_id}",
-            out_path,
-            headers=headers,
-            json=payload,
-            timeout=timeout,
-        )
+        with http.call_context(provider="elevenlabs", kind="audio", operation="synthesize", model=MODEL):
+            return http.stream_to_file(
+                "POST",
+                f"{BASE_URL}/text-to-speech/{voice_id}",
+                out_path,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
 
     def list_voices(self) -> list[dict]:
-        data = http.request_json("GET", f"{BASE_URL}/voices", headers=self._headers(), timeout=15)
+        with http.call_context(provider="elevenlabs", kind="audio", operation="list_voices"):
+            data = http.request_json("GET", f"{BASE_URL}/voices", headers=self._headers(), timeout=15)
         return data.get("voices", [])
 
     def usage(self) -> dict:
-        data = http.request_json(
-            "GET", f"{BASE_URL}/user/subscription", headers=self._headers(), timeout=10
-        )
+        with http.call_context(provider="elevenlabs", kind="audio", operation="usage"):
+            data = http.request_json(
+                "GET", f"{BASE_URL}/user/subscription", headers=self._headers(), timeout=10
+            )
         used = data.get("character_count", 0)
         limit = data.get("character_limit", 0)
         return {
