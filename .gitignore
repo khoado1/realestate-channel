@@ -56,3 +56,6 @@ $RECYCLE.BIN/
 # API response caches
 .cache/
 *.json.cache
+
+# Call store (sqlite + artifacts) when BASE_CONTENT_DIR is unset
+.data/

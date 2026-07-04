@@ -58,21 +58,7 @@ POSTING_SCHEDULE = {
     },
 }
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich.rule import Rule
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg):   console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""):  console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 
 # ── Postiz API ────────────────────────────────────────────────────────────────

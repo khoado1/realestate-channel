@@ -15,6 +15,7 @@ CONTENT_SUBDIRS: dict[str, str] = {
     "IDEAS_DIR":      "ideas",
     "ANALYTICS_DIR":  "analytics",
     "REPURPOSED_DIR": "repurposed",
+    "DATA_DIR":       ".data",   # call store (sqlite + artifacts)
 }
 
 # Path env vars with no content-relative default — resolved straight from the
@@ -22,7 +23,10 @@ CONTENT_SUBDIRS: dict[str, str] = {
 ENV_ONLY_PATHS: set[str] = {"VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"}
 
 # Shared defaults for non-path environment values.
-ENV_DEFAULTS: dict[str, str] = {"CHANNEL_NAME": "realestate-channel"}
+ENV_DEFAULTS: dict[str, str] = {
+    "CHANNEL_NAME": "realestate-channel",
+    "ELEVENLABS_FALLBACK_VOICE_ID": "21m00Tcm4TlvDq8ikWAM",  # Rachel (ElevenLabs default)
+}
 
 
 PathSpec = tuple[str, "str | Callable[[str], str]"]

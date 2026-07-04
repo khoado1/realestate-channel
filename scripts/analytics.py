@@ -31,6 +31,7 @@ import argparse
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+from scripts.providers import get_provider
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -43,49 +44,20 @@ RETENTION_FLAG_LOW  = 0.50   # flag if avg view duration < 50% (hook problem)
 RETENTION_FLAG_HIGH = 0.60   # flag as winner if avg view duration > 60%
 EARLY_DROPOFF_SECS  = 30     # seconds — flag hook if drop-off spikes here
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich.rule import Rule
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg):       console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""):     console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 
 # ── Anthropic API — insights generation ──────────────────────────────────────
 def call_claude(prompt: str, max_tokens: int = 1000) -> str:
-    import requests
-
     system = f"""You are the analytics strategist for {runtime.CHANNEL_NAME}, a YouTube channel
 about real estate, mortgages, and loans. You analyze performance data and extract
 actionable content insights. Be specific and direct — no generic advice.
 Always tie observations back to content decisions: what to make more of,
 what to change, what to stop doing."""
 
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    # Analytics degrades gracefully — a failed insight call must not break the report.
     try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
+        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens)
     except Exception as e:
         return f"[Insight generation unavailable: {e}]"
 

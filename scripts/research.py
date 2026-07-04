@@ -20,6 +20,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from scripts.providers import ProviderError, get_provider
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -30,18 +31,10 @@ runtime = RuntimeConfig(
 # Watchlist file — add topics here for --auto mode
 WATCHLIST_PATH = Path(runtime.IDEAS_DIR) / "watchlist.md"
 
-# ── Try importing rich for pretty output ─────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.markdown import Markdown
-    from rich.panel import Panel
-    from rich import print as rprint
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
+# ── Rich for pretty output ───────────────────────────────────────────────────
+from scripts.utils.console import RICH, Panel, Table, console
+
+if not RICH:
     print("⚠ rich not installed — run: pip3 install rich")
     print("  Falling back to plain text output.\n")
 
@@ -75,29 +68,10 @@ DEFAULT_WATCHLIST = [
 
 # ── Anthropic API call ────────────────────────────────────────────────────────
 def call_claude(prompt: str, system: str = "") -> str:
-    """Call Claude API and return text response."""
-    import requests
-
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": 1000,
-        "system": system or build_system_prompt(),
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
+    """Call the configured AI provider and return its text response."""
     try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        texts = [b["text"] for b in data.get("content", []) if b.get("type") == "text"]
-        return "\n".join(texts)
-    except requests.exceptions.RequestException as e:
+        return get_provider("ai").complete(prompt, system=system or build_system_prompt())
+    except ProviderError as e:
         print(f"✗ Claude API error: {e}")
         sys.exit(1)
 

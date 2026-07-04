@@ -1,0 +1,55 @@
+# Rules to strip non-spoken content from a script before TTS. Applied in order.
+# `pattern`/`replacement` are regex; `flags` ∈ IGNORECASE | MULTILINE | DOTALL.
+# Single-quoted (literal) strings keep regex backslashes intact.
+
+[[rule]]
+pattern = '\[HOOK\]|\[INTRO\]|\[RECAP\]|\[CTA\]'
+comment = "section markers"
+
+[[rule]]
+pattern = '\[SECTION_\d+:[^\]]*\]'
+comment = "numbered section markers"
+
+[[rule]]
+pattern = '\[B-ROLL[^\]]*\]'
+flags = ["IGNORECASE"]
+comment = "B-roll cues"
+
+[[rule]]
+pattern = '\[GRAPHIC:[^\]]*\]'
+flags = ["IGNORECASE"]
+comment = "graphic cues"
+
+[[rule]]
+pattern = '\[verify before filming\]'
+flags = ["IGNORECASE"]
+comment = "verify flags"
+
+[[rule]]
+pattern = '^#{1,6}\s+.+$'
+flags = ["MULTILINE"]
+comment = "markdown headers"
+
+[[rule]]
+pattern = '^- \[[ x]\].+$'
+flags = ["MULTILINE"]
+comment = "checklist items"
+
+[[rule]]
+pattern = '\*{1,3}([^*]+)\*{1,3}'
+replacement = '\1'
+comment = "bold/italic markers"
+
+[[rule]]
+pattern = 'https?://\S+'
+comment = "URLs"
+
+[[rule]]
+pattern = '^---+$'
+flags = ["MULTILINE"]
+comment = "horizontal rules"
+
+[[rule]]
+pattern = '\n{3,}'
+replacement = "\n\n"
+comment = "collapse blank lines"

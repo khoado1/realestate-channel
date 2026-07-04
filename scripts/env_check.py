@@ -6,6 +6,7 @@ def run() -> int:
         "BASE_CONTENT_DIR": os.getenv("BASE_CONTENT_DIR"),
         "CHANNEL_NAME": os.getenv("CHANNEL_NAME"),
         "CHANNEL_ID": os.getenv("CHANNEL_ID"),
+        "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY"),
         "YOUTUBE_API_KEY": os.getenv("YOUTUBE_API_KEY"),
         "POSTIZ_API_KEY": os.getenv("POSTIZ_API_KEY"),
         "ELEVENLABS_API_KEY": os.getenv("ELEVENLABS_API_KEY"),

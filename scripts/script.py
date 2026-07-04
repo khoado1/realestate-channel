@@ -23,6 +23,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from scripts.providers import ProviderError, get_provider
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -32,46 +33,15 @@ runtime = RuntimeConfig(
 
 BACKLOG_PATH = Path(runtime.IDEAS_DIR) / "backlog.md"
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.prompt import Prompt
-    from rich.markdown import Markdown
-    from rich.rule import Rule
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg): console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""): console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import RICH, Markdown, Prompt, console, rpanel, rprint, rrule
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────
 def call_claude(prompt: str, system: str, max_tokens: int = 1000) -> str:
-    import requests
-
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
+    """Call the configured AI provider and return its text response."""
     try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
-    except requests.exceptions.RequestException as e:
+        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens, timeout=120)
+    except ProviderError as e:
         print(f"✗ Claude API error: {e}")
         sys.exit(1)
 

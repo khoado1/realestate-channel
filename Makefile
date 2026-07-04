@@ -55,6 +55,10 @@ schedule: ## Schedule content via Postiz (requires review first)
 analytics: ## Pull YouTube analytics and generate weekly report
 	$(DOPPLER) $(PYTHON) -m scripts.analytics
 
+.PHONY: calls
+calls: ## Show recently recorded provider API calls (cost/usage/status)
+	$(DOPPLER) $(PYTHON) -m scripts.store.report
+
 .PHONY: pipeline-a
 pipeline-a: research script repurpose ## Run full Pipeline A sequence (research → script → repurpose)
 

@@ -1,0 +1,9 @@
+# PLACEHOLDER rates — verify against current provider pricing before trusting costs.
+# All recorded costs are marked estimated. USD per 1M tokens (AI) / per 1k chars (audio).
+
+[claude."claude-sonnet-4-20250514"]
+in_per_m = 3.0
+out_per_m = 15.0
+
+[elevenlabs]
+per_k_chars = 0.30
