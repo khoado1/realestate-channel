@@ -38,10 +38,14 @@ def request_json(
     *,
     headers: dict | None = None,
     json: Any = None,
+    data: Any = None,
     params: dict | None = None,
     timeout: int = 60,
 ) -> dict:
-    """Make a JSON request, returning parsed JSON. Raises ProviderError on failure."""
+    """Make a request returning parsed JSON. Raises ProviderError on failure.
+
+    ``json`` sends a JSON body; ``data`` sends a raw body (e.g. binary upload).
+    """
     import requests
 
     started = time.time()
@@ -49,7 +53,7 @@ def request_json(
     error = None
     try:
         resp = requests.request(
-            method.upper(), url, headers=headers, json=json, params=params, timeout=timeout
+            method.upper(), url, headers=headers, json=json, data=data, params=params, timeout=timeout
         )
         status = resp.status_code
         resp.raise_for_status()

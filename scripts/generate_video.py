@@ -32,36 +32,22 @@ Output:
 
 import sys
 import re
-import json
 import time
 import argparse
 from datetime import datetime
 from pathlib import Path
 
+from scripts.providers import ProviderError, VideoRequest, get_provider
+from scripts.providers import http as provider_http
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"],
-    env=["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"],
 )
-
-HEYGEN_BASE_URL      = "https://api.heygen.com"
-HYPERFRAMES_BASE_URL = "https://api.hyperframes.ai/v1"  # update if endpoint changes
 
 RENDER_LOG = Path(runtime.VIDEO_DIR) / "render-log.md" if runtime.VIDEO_DIR else Path("render-log.md")
 
-# ── HeyGen defaults ───────────────────────────────────────────────────────────
-# Stock avatar used as fallback until custom avatar is created
-HEYGEN_STOCK_AVATAR_ID   = "Daisy-inskirt-20220818"   # professional, neutral
-HEYGEN_STOCK_AVATAR_STYLE = "normal"
-HEYGEN_VIDEO_WIDTH        = 1920
-HEYGEN_VIDEO_HEIGHT       = 1080
-HEYGEN_BACKGROUND_COLOR   = "#f5f5f5"
-
-# Shorts format
-SHORTS_WIDTH  = 1080
-SHORTS_HEIGHT = 1920
-
+# Render config (avatars, dimensions, endpoints, auth) lives in the video providers.
 # Poll interval for render status checks (seconds)
 POLL_INTERVAL = 15
 POLL_TIMEOUT  = 1800   # 30 minutes max wait
@@ -79,162 +65,48 @@ from scripts.utils.console import (
 )
 
 
-# ── HeyGen API ────────────────────────────────────────────────────────────────
-def heygen_request(method: str, endpoint: str, payload: dict = None) -> dict:
-    """Make a HeyGen API request."""
-    import requests
-
-    if not runtime.HEYGEN_API_KEY:
-        rprint("[red]✗ HEYGEN_API_KEY not set in .env[/red]")
-        sys.exit(1)
-
-    headers = {
-        "X-Api-Key": runtime.HEYGEN_API_KEY,
-        "Content-Type": "application/json",
-    }
-    url = f"{HEYGEN_BASE_URL}/{endpoint.lstrip('/')}"
-
-    try:
-        resp = requests.request(
-            method.upper(), url,
-            headers=headers,
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.HTTPError as e:
-        rprint(f"[red]✗ HeyGen API error {resp.status_code}: {resp.text[:300]}[/red]")
-        raise
-    except requests.exceptions.RequestException as e:
-        rprint(f"[red]✗ HeyGen connection error: {e}[/red]")
-        raise
-
-
-def resolve_avatar_id() -> tuple[str, str]:
-    """
-    Resolve which HeyGen avatar to use.
-    Returns (avatar_id, label).
-    """
-    if runtime.HEYGEN_AVATAR_ID:
-        return runtime.HEYGEN_AVATAR_ID, "custom avatar"
-    rprint("[yellow]⚠ HEYGEN_AVATAR_ID not set — using stock avatar[/yellow]")
-    rprint("[dim]  Set HEYGEN_AVATAR_ID in .env after creating your avatar at heygen.com[/dim]")
-    return HEYGEN_STOCK_AVATAR_ID, f"stock avatar ({HEYGEN_STOCK_AVATAR_ID})"
-
-
-def upload_audio_to_heygen(audio_path: Path) -> str:
-    """
-    Upload a local .mp3 file to HeyGen and return the asset ID.
-    HeyGen requires audio to be hosted — this uploads it to their asset store.
-    """
-    import requests
-
-    rprint(f"[dim]Uploading audio to HeyGen asset store...[/dim]")
-
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
-    headers = {
-        "X-Api-Key": runtime.HEYGEN_API_KEY,
-        "Content-Type": "audio/mpeg",
-    }
-
-    try:
-        resp = requests.post(
-            f"{HEYGEN_BASE_URL}/v1/asset",
-            headers=headers,
-            data=audio_data,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        asset_id = data.get("data", {}).get("id") or data.get("id", "")
-        if not asset_id:
-            rprint(f"[red]✗ No asset ID in HeyGen response: {data}[/red]")
-            sys.exit(1)
-        rprint(f"[green]✓ Audio uploaded: {asset_id}[/green]")
-        return asset_id
-    except Exception as e:
-        rprint(f"[red]✗ Audio upload failed: {e}[/red]")
-        sys.exit(1)
-
-
-def submit_heygen_video(
-    audio_path: Path,
-    avatar_id: str,
-    title: str,
-    dry_run: bool = False,
-) -> str:
-    """
-    Submit a HeyGen video generation job.
-    Returns job_id (or 'dry_run' if dry_run=True).
-    """
+# ── HeyGen (long-form avatar video) ───────────────────────────────────────────
+def submit_heygen_video(audio_path: Path, title: str, dry_run: bool = False) -> str:
+    """Submit a HeyGen render job. Returns job_id (or a sentinel on dry run)."""
+    provider = get_provider("video", "heygen")
+    avatar_id, avatar_label = provider.resolve_avatar()
     file_size_mb = audio_path.stat().st_size / 1024 / 1024
 
     rprint(f"\n[bold]HeyGen long-form render[/bold]")
-    rprint(f"  Avatar:  {avatar_id}")
+    rprint(f"  Avatar:  {avatar_label} ({avatar_id})")
     rprint(f"  Audio:   {audio_path.name} ({file_size_mb:.1f} MB)")
-    rprint(f"  Format:  {HEYGEN_VIDEO_WIDTH}x{HEYGEN_VIDEO_HEIGHT}")
+    rprint(f"  Format:  16:9 landscape")
 
     if dry_run:
         rprint("[dim][DRY RUN] Would submit HeyGen job — skipping API call[/dim]")
         return "dry_run_job_id"
 
-    # Upload audio first
-    audio_asset_id = upload_audio_to_heygen(audio_path)
-
-    # Build HeyGen v2 video payload
-    payload = {
-        "video_inputs": [
-            {
-                "character": {
-                    "type": "avatar",
-                    "avatar_id": avatar_id,
-                    "avatar_style": HEYGEN_STOCK_AVATAR_STYLE,
-                },
-                "voice": {
-                    "type": "audio",
-                    "audio_asset_id": audio_asset_id,
-                },
-                "background": {
-                    "type": "color",
-                    "value": HEYGEN_BACKGROUND_COLOR,
-                },
-            }
-        ],
-        "dimension": {
-            "width":  HEYGEN_VIDEO_WIDTH,
-            "height": HEYGEN_VIDEO_HEIGHT,
-        },
-        "caption": False,   # set True to auto-add captions
-        "title":   title[:50],
-    }
-
     try:
-        data = heygen_request("POST", "/v2/video/generate", payload)
-        job_id = data.get("data", {}).get("video_id") or data.get("video_id", "")
-        if not job_id:
-            rprint(f"[red]✗ No job ID in HeyGen response: {data}[/red]")
-            sys.exit(1)
+        rprint("[dim]Uploading audio to HeyGen asset store...[/dim]")
+        asset_id = provider.upload_audio(audio_path)
+        rprint(f"[green]✓ Audio uploaded: {asset_id}[/green]")
+        job_id = provider.submit(
+            VideoRequest(audio_path=audio_path, title=title, audio_asset_id=asset_id)
+        )
         rprint(f"[green]✓ HeyGen job submitted: {job_id}[/green]")
         return job_id
-    except Exception as e:
+    except ProviderError as e:
         rprint(f"[red]✗ HeyGen submission failed: {e}[/red]")
         sys.exit(1)
 
 
-def poll_heygen_status(job_id: str, output_path: Path) -> bool:
-    """
-    Poll HeyGen until the video is ready, then download it.
-    Returns True on success.
-    """
-    import requests
-
-    rprint(f"\n[dim]Polling HeyGen render status (job: {job_id})...[/dim]")
-    rprint(f"[dim]This typically takes 5-20 minutes for long-form content.[/dim]\n")
-
+# ── Shared polling ────────────────────────────────────────────────────────────
+def poll_and_download(provider, service: str, job_id: str, output_path: Path) -> bool:
+    """Poll a video provider until the render finishes, then download it."""
+    rprint(f"\n[dim]Polling {service} render status (job: {job_id})...[/dim]")
     start = time.time()
+
+    def _finish(st) -> bool:
+        if st.state == "completed" and st.video_url:
+            return download_video(st.video_url, output_path)
+        if st.state == "failed":
+            rprint(f"[red]✗ {service} render failed: {st.error}[/red]")
+        return False
 
     if RICH:
         with Progress(
@@ -244,47 +116,26 @@ def poll_heygen_status(job_id: str, output_path: Path) -> bool:
             console=console,
         ) as progress:
             task = progress.add_task("Rendering...", total=None)
-
             while time.time() - start < POLL_TIMEOUT:
                 time.sleep(POLL_INTERVAL)
                 try:
-                    data = heygen_request("GET", f"/v1/video_status.get?video_id={job_id}")
-                    status = data.get("data", {}).get("status", "")
-                    progress.update(task, description=f"Rendering... [{status}]")
-
-                    if status == "completed":
-                        video_url = data.get("data", {}).get("video_url", "")
-                        if video_url:
-                            progress.stop()
-                            return download_video(video_url, output_path)
-                        break
-
-                    elif status == "failed":
-                        error = data.get("data", {}).get("error", {})
+                    st = provider.status(job_id)
+                    progress.update(task, description=f"Rendering... [{st.state}]")
+                    if st.state in ("completed", "failed"):
                         progress.stop()
-                        rprint(f"[red]✗ HeyGen render failed: {error}[/red]")
-                        return False
-
-                except Exception as e:
+                        return _finish(st)
+                except ProviderError as e:
                     progress.update(task, description=f"Polling error: {e} — retrying...")
     else:
         while time.time() - start < POLL_TIMEOUT:
             time.sleep(POLL_INTERVAL)
             try:
-                data = heygen_request("GET", f"/v1/video_status.get?video_id={job_id}")
-                status = data.get("data", {}).get("status", "")
+                st = provider.status(job_id)
                 elapsed = int(time.time() - start)
-                print(f"  [{elapsed}s] Status: {status}")
-
-                if status == "completed":
-                    video_url = data.get("data", {}).get("video_url", "")
-                    if video_url:
-                        return download_video(video_url, output_path)
-                    break
-                elif status == "failed":
-                    rprint(f"[red]✗ HeyGen render failed[/red]")
-                    return False
-            except Exception as e:
+                print(f"  [{elapsed}s] Status: {st.state}")
+                if st.state in ("completed", "failed"):
+                    return _finish(st)
+            except ProviderError as e:
                 print(f"  Polling error: {e} — retrying...")
 
     rprint(f"[yellow]⚠ Render timeout after {POLL_TIMEOUT//60} minutes[/yellow]")
@@ -292,146 +143,55 @@ def poll_heygen_status(job_id: str, output_path: Path) -> bool:
     return False
 
 
-# ── HyperFrames API ───────────────────────────────────────────────────────────
-def hyperframes_request(method: str, endpoint: str, payload: dict = None) -> dict:
-    """Make a HyperFrames API request."""
-    import requests
-
-    # NOTE: HyperFrames API key reuses ElevenLabs key in some integrations,
-    # but check hyperframes.ai for their current auth method.
-    headers = {
-        "Authorization": f"Bearer {runtime.ELEVENLABS_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    url = f"{HYPERFRAMES_BASE_URL}/{endpoint.lstrip('/')}"
-
-    try:
-        resp = requests.request(
-            method.upper(), url,
-            headers=headers,
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.HTTPError as e:
-        rprint(f"[red]✗ HyperFrames API error {resp.status_code}: {resp.text[:300]}[/red]")
-        raise
-    except requests.exceptions.RequestException as e:
-        rprint(f"[red]✗ HyperFrames connection error: {e}[/red]")
-        raise
-
-
+# ── HyperFrames (animated Shorts) ─────────────────────────────────────────────
 def submit_hyperframes_short(
     audio_path: Path,
     script_text: str,
     title: str,
     dry_run: bool = False,
 ) -> str:
-    """
-    Submit a HyperFrames animated Short generation job.
-    Returns job_id.
-    """
+    """Submit a HyperFrames Short render job. Returns job_id ("" if none)."""
+    provider = get_provider("video", "hyperframes")
     file_size_mb = audio_path.stat().st_size / 1024 / 1024
 
     rprint(f"\n[bold]HyperFrames Short render[/bold]")
     rprint(f"  Audio:  {audio_path.name} ({file_size_mb:.1f} MB)")
-    rprint(f"  Format: {SHORTS_WIDTH}x{SHORTS_HEIGHT} (vertical)")
+    rprint(f"  Format: 9:16 vertical")
 
     if dry_run:
         rprint("[dim][DRY RUN] Would submit HyperFrames job — skipping API call[/dim]")
         return "dry_run_job_id"
 
-    # HyperFrames expects the script for visual keyword extraction
-    payload = {
-        "title":        title[:80],
-        "script":       script_text[:2000],
-        "audio_url":    "",         # HyperFrames may need hosted audio — see docs
-        "dimensions": {
-            "width":  SHORTS_WIDTH,
-            "height": SHORTS_HEIGHT,
-        },
-        "style": "professional",    # professional | dynamic | minimal
-        "topic": "real_estate",     # helps their visual matching
-    }
-
     # NOTE: HyperFrames may require audio to be hosted (like HeyGen).
-    # If local upload is not supported, audio needs to be uploaded to a
-    # temporary host first. Check hyperframes.ai/docs for current flow.
     rprint("[yellow]⚠ HyperFrames integration note:[/yellow]")
     rprint("[dim]  Verify audio hosting requirements at hyperframes.ai/docs[/dim]")
     rprint("[dim]  API endpoint and auth may differ from this stub[/dim]")
 
     try:
-        data = hyperframes_request("POST", "/generate", payload)
-        job_id = data.get("job_id") or data.get("id", "")
+        job_id = provider.submit(
+            VideoRequest(audio_path=audio_path, title=title, script_text=script_text)
+        )
         if not job_id:
-            rprint(f"[yellow]⚠ No job ID in HyperFrames response: {data}[/yellow]")
+            rprint("[yellow]⚠ No job ID in HyperFrames response[/yellow]")
             return ""
         rprint(f"[green]✓ HyperFrames job submitted: {job_id}[/green]")
         return job_id
-    except Exception as e:
+    except ProviderError as e:
         rprint(f"[red]✗ HyperFrames submission failed: {e}[/red]")
         rprint("[dim]  HyperFrames is in active development — check docs for latest API[/dim]")
         return ""
 
 
-def poll_hyperframes_status(job_id: str, output_path: Path) -> bool:
-    """Poll HyperFrames until the video is ready, then download it."""
-    import requests
-
-    rprint(f"\n[dim]Polling HyperFrames render status (job: {job_id})...[/dim]")
-    start = time.time()
-
-    while time.time() - start < POLL_TIMEOUT:
-        time.sleep(POLL_INTERVAL)
-        try:
-            data = hyperframes_request("GET", f"/status/{job_id}")
-            status = data.get("status", "")
-            elapsed = int(time.time() - start)
-            rprint(f"[dim]  [{elapsed}s] {status}[/dim]")
-
-            if status in ("completed", "done", "ready"):
-                video_url = data.get("video_url") or data.get("output_url", "")
-                if video_url:
-                    return download_video(video_url, output_path)
-                break
-            elif status in ("failed", "error"):
-                rprint(f"[red]✗ HyperFrames render failed: {data.get('error','')}[/red]")
-                return False
-
-        except Exception as e:
-            rprint(f"[dim]  Polling error: {e} — retrying...[/dim]")
-
-    rprint(f"[yellow]⚠ Render timeout[/yellow]")
-    return False
-
-
 # ── Shared utilities ──────────────────────────────────────────────────────────
 def download_video(url: str, output_path: Path) -> bool:
     """Download a rendered video from a URL to output_path."""
-    import requests
-
     rprint(f"\n[dim]Downloading video...[/dim]")
     try:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        resp = requests.get(url, stream=True, timeout=300)
-        resp.raise_for_status()
-
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-
+        provider_http.stream_to_file("GET", url, output_path, timeout=300, chunk_size=65536)
         size_mb = output_path.stat().st_size / 1024 / 1024
         rprint(f"[green]✓ Video saved: {output_path.name} ({size_mb:.1f} MB)[/green]")
         return True
-
-    except Exception as e:
+    except ProviderError as e:
         rprint(f"[red]✗ Download failed: {e}[/red]")
         return False
 
@@ -565,19 +325,22 @@ def check_job_status(job_id: str, service: str):
     """Check and print the status of a pending render job."""
     rprint(f"\n[bold]Checking job: {job_id} ({service})[/bold]")
 
-    if service == "heygen":
-        try:
-            data   = heygen_request("GET", f"/v1/video_status.get?video_id={job_id}")
-            status = data.get("data", {}).get("status", "unknown")
-            url    = data.get("data", {}).get("video_url", "")
-            rprint(f"  Status: [bold]{status}[/bold]")
-            if url:
-                rprint(f"  URL: {url}")
-                rprint(f"\n[dim]To download: python3 scripts/generate_video.py --download {url}[/dim]")
-        except Exception as e:
-            rprint(f"[red]✗ Status check failed: {e}[/red]")
-    else:
-        rprint("[yellow]⚠ Status check for HyperFrames not yet implemented[/yellow]")
+    try:
+        provider = get_provider("video", service)
+    except ProviderError as e:
+        rprint(f"[red]✗ {e}[/red]")
+        return
+
+    try:
+        st = provider.status(job_id)
+        rprint(f"  Status: [bold]{st.state}[/bold]")
+        if st.error:
+            rprint(f"  Error: {st.error}")
+        if st.video_url:
+            rprint(f"  URL: {st.video_url}")
+            rprint(f"\n[dim]To download: python3 scripts/generate_video.py --download {st.video_url}[/dim]")
+    except ProviderError as e:
+        rprint(f"[red]✗ Status check failed: {e}[/red]")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -613,10 +376,6 @@ def main():
         "[dim]HeyGen (long-form avatar) · HyperFrames (Shorts)[/dim]",
         width=52,
     )
-
-    # ── Resolve avatar ──
-    avatar_id, avatar_label = resolve_avatar_id()
-    rprint(f"\n[dim]Avatar: {avatar_label}[/dim]")
 
     # ── Determine mode ──
     if args.both:
@@ -691,9 +450,7 @@ def main():
         if ftype == "longform":
             out_path = Path(runtime.LONGFORM_DIR) / f"{date_str}-{slug}-longform.mp4"
 
-            job_id = submit_heygen_video(
-                audio_path, avatar_id, title, args.dry_run
-            )
+            job_id = submit_heygen_video(audio_path, title, args.dry_run)
 
             log_entries.append({
                 "service": "HeyGen",
@@ -704,7 +461,7 @@ def main():
             })
 
             if not args.dry_run and not args.no_wait and job_id != "dry_run_job_id":
-                success = poll_heygen_status(job_id, out_path)
+                success = poll_and_download(get_provider("video", "heygen"), "HeyGen", job_id, out_path)
                 log_entries[-1]["status"] = "completed" if success else "failed"
                 results.append({"type": "longform", "success": success, "path": str(out_path)})
             elif args.no_wait:
@@ -733,7 +490,7 @@ def main():
             })
 
             if not args.dry_run and not args.no_wait and job_id:
-                success = poll_hyperframes_status(job_id, out_path)
+                success = poll_and_download(get_provider("video", "hyperframes"), "HyperFrames", job_id, out_path)
                 log_entries[-1]["status"] = "completed" if success else "failed"
                 results.append({"type": "short", "success": success, "path": str(out_path)})
             elif args.no_wait and job_id:

@@ -7,6 +7,7 @@ for a *kind* and gets whichever provider is configured at runtime.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -53,3 +54,41 @@ class AudioProvider(ABC):
 
         Raises ``ProviderError`` on failure.
         """
+
+
+@dataclass
+class VideoRequest:
+    """Caller-supplied inputs for a video render (provider fills in the rest)."""
+
+    audio_path: Path
+    title: str
+    script_text: str = ""
+    audio_asset_id: str = ""
+
+
+@dataclass
+class VideoStatus:
+    """Normalized render status across video providers."""
+
+    state: str  # "pending" | "completed" | "failed"
+    video_url: str = ""
+    error: str = ""
+
+
+class VideoProvider(ABC):
+    """Avatar / animated video generation (async submit + poll)."""
+
+    def upload_audio(self, audio_path: Path) -> str:
+        """Upload local audio to the service, returning an asset reference.
+
+        Default: the service does not require pre-hosted audio.
+        """
+        return ""
+
+    @abstractmethod
+    def submit(self, req: VideoRequest) -> str:
+        """Submit a render job; return its job id. Raises ``ProviderError``."""
+
+    @abstractmethod
+    def status(self, job_id: str) -> VideoStatus:
+        """Return the normalized status for ``job_id``. Raises ``ProviderError``."""
