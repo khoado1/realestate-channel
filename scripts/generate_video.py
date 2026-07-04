@@ -42,13 +42,7 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
-        ("VIDEO_DIR", ""),
-        ("AUDIO_DIR", ""),
-        ("LONGFORM_DIR", ""),
-        ("SHORTS_DIR", ""),
-    ],
+    paths=["SCRIPTS_DIR", "VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"],
 )
 
 HEYGEN_API_KEY   = os.getenv("HEYGEN_API_KEY", "")

@@ -5,6 +5,29 @@ from dotenv import load_dotenv
 
 from scripts.utils.path_utils import resolve
 
+# ── Project layout catalog ────────────────────────────────────────────────────
+# Directory env vars whose default is derived from BASE_CONTENT_DIR. The default
+# subdir lives here once so every script shares the same layout instead of each
+# re-declaring `os.path.join(content_dir, "...")`. An env var of the same name
+# still overrides the derived default at resolution time.
+CONTENT_SUBDIRS: dict[str, str] = {
+    "SCRIPTS_DIR":    "scripts",
+    "IDEAS_DIR":      "ideas",
+    "ANALYTICS_DIR":  "analytics",
+    "REPURPOSED_DIR": "repurposed",
+}
+
+# Path env vars with no content-relative default — resolved straight from the
+# environment (empty string when unset).
+ENV_ONLY_PATHS: set[str] = {"VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"}
+
+# Shared defaults for non-path environment values.
+ENV_DEFAULTS: dict[str, str] = {"CHANNEL_NAME": "realestate-channel"}
+
+
+PathSpec = tuple[str, "str | Callable[[str], str]"]
+EnvSpec = tuple["str | tuple[str, ...]", str]
+
 
 def init_environment() -> None:
     """Load environment variables from the local .env file when present."""
@@ -17,17 +40,50 @@ def resolve_env_path(name: str, default: str = "") -> str:
 
 
 class RuntimeConfig:
-    """Encapsulate script runtime configuration and environment resolution."""
+    """Encapsulate script runtime configuration and environment resolution.
+
+    Scripts declare *what* they need by name via ``paths`` and ``env``; the
+    *defaults* come from the shared catalog above. Pass ``path_specs`` /
+    ``env_specs`` for one-off values the catalog doesn't know about.
+    """
 
     def __init__(
         self,
         *,
-        path_specs: list[tuple[str, str | Callable[[str], str]]] | None = None,
-        env_specs: list[tuple[str | tuple[str, ...], str]] | None = None,
+        paths: list[str] | None = None,
+        env: list[str | tuple[str, ...]] | None = None,
+        path_specs: list[PathSpec] | None = None,
+        env_specs: list[EnvSpec] | None = None,
     ) -> None:
-        self.path_specs = list(path_specs or [])
-        self.env_specs = list(env_specs or [])
+        self.path_specs = self._catalog_path_specs(paths) + list(path_specs or [])
+        self.env_specs = self._catalog_env_specs(env) + list(env_specs or [])
         self._initialize()
+
+    @staticmethod
+    def _catalog_path_specs(paths: list[str] | None) -> list[PathSpec]:
+        """Resolve catalog path names to (name, spec) pairs."""
+        specs: list[PathSpec] = []
+        for name in paths or []:
+            if name in CONTENT_SUBDIRS:
+                subdir = CONTENT_SUBDIRS[name]
+                specs.append((name, lambda content_dir, s=subdir: os.path.join(content_dir, s)))
+            elif name in ENV_ONLY_PATHS:
+                specs.append((name, ""))
+            else:
+                raise KeyError(
+                    f"Unknown path '{name}'. Add it to CONTENT_SUBDIRS or ENV_ONLY_PATHS "
+                    f"in scripts/runtime.py, or pass an explicit (name, spec) via path_specs."
+                )
+        return specs
+
+    @staticmethod
+    def _catalog_env_specs(env: list[str | tuple[str, ...]] | None) -> list[EnvSpec]:
+        """Resolve catalog env entries to (name-or-fallbacks, default) pairs."""
+        specs: list[EnvSpec] = []
+        for entry in env or []:
+            primary = entry if isinstance(entry, str) else entry[0]
+            specs.append((entry, ENV_DEFAULTS.get(primary, "")))
+        return specs
 
     def _initialize(self) -> None:
         init_environment()

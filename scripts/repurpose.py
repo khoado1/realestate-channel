@@ -19,7 +19,6 @@ Output:
     - $REPURPOSED_DIR/YYYY-MM-DD-[slug]/newsletter.md
 """
 
-import os
 import sys
 import re
 import json
@@ -30,14 +29,8 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
-        ("REPURPOSED_DIR", lambda content_dir: os.path.join(content_dir, "repurposed")),
-    ],
-    env_specs=[
-        ("CHANNEL_NAME", "realestate-channel"),
-        ("YOUTUBE_API_KEY", ""),
-    ],
+    paths=["SCRIPTS_DIR", "REPURPOSED_DIR"],
+    env=["CHANNEL_NAME", "YOUTUBE_API_KEY"],
 )
 
 # ── Rich setup ────────────────────────────────────────────────────────────────

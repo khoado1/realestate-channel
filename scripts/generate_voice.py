@@ -34,10 +34,7 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("SCRIPTS_DIR", ""),
-        ("AUDIO_DIR", ""),
-    ],
+    paths=["SCRIPTS_DIR", "AUDIO_DIR"],
 )
 
 ELEVENLABS_API_KEY          = os.getenv("ELEVENLABS_API_KEY", "")

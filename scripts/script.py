@@ -16,7 +16,6 @@ Output:
     - File: $SCRIPTS_DIR/YYYY-MM-DD-[slug]-script.md
 """
 
-import os
 import sys
 import json
 import argparse
@@ -27,11 +26,8 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
-        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
-    ],
-    env_specs=[("CHANNEL_NAME", "realestate-channel")],
+    paths=["SCRIPTS_DIR", "IDEAS_DIR"],
+    env=["CHANNEL_NAME"],
 )
 
 BACKLOG_PATH = Path(runtime.IDEAS_DIR) / "backlog.md"

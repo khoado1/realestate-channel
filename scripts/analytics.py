@@ -25,7 +25,6 @@ Feedback loop:
     - Appends performance patterns to ideas/backlog.md as content signals
 """
 
-import os
 import sys
 import json
 import argparse
@@ -35,15 +34,8 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("ANALYTICS_DIR", lambda content_dir: os.path.join(content_dir, "analytics")),
-        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
-    ],
-    env_specs=[
-        ("YOUTUBE_API_KEY", ""),
-        (("YOUTUBE_CHANNEL_ID", "CHANNEL_ID"), ""),  # falls back to CHANNEL_ID
-        ("CHANNEL_NAME", "realestate-channel"),
-    ],
+    paths=["ANALYTICS_DIR", "IDEAS_DIR"],
+    env=["YOUTUBE_API_KEY", ("YOUTUBE_CHANNEL_ID", "CHANNEL_ID"), "CHANNEL_NAME"],
 )
 
 # ── Thresholds for flagging ───────────────────────────────────────────────────

@@ -15,7 +15,6 @@ Output:
     - File: $SCRIPTS_DIR/YYYY-MM-DD-research.md
 """
 
-import os
 import sys
 import argparse
 from datetime import datetime
@@ -24,11 +23,8 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("SCRIPTS_DIR", lambda content_dir: os.path.join(content_dir, "scripts")),
-        ("IDEAS_DIR", lambda content_dir: os.path.join(content_dir, "ideas")),
-    ],
-    env_specs=[("CHANNEL_NAME", "realestate-channel")],
+    paths=["SCRIPTS_DIR", "IDEAS_DIR"],
+    env=["CHANNEL_NAME"],
 )
 
 # Watchlist file — add topics here for --auto mode

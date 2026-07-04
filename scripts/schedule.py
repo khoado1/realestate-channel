@@ -22,7 +22,6 @@ Output:
     - Appends schedule log to $REPURPOSED_DIR/schedule-log.md
 """
 
-import os
 import sys
 import re
 import json
@@ -33,13 +32,8 @@ from pathlib import Path
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
-    path_specs=[
-        ("REPURPOSED_DIR", lambda content_dir: os.path.join(content_dir, "repurposed")),
-    ],
-    env_specs=[
-        ("POSTIZ_API_KEY", ""),
-        ("CHANNEL_NAME", "realestate-channel"),
-    ],
+    paths=["REPURPOSED_DIR"],
+    env=["POSTIZ_API_KEY", "CHANNEL_NAME"],
 )
 
 POSTIZ_BASE_URL = "https://api.postiz.com/public/v1"
