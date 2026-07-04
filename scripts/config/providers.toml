@@ -1,0 +1,29 @@
+# Provider tunables. Edit here — no code changes needed.
+
+[claude]
+api_url = "https://api.anthropic.com/v1/messages"
+anthropic_version = "2023-06-01"
+model = "claude-sonnet-4-20250514"
+
+[elevenlabs]
+base_url = "https://api.elevenlabs.io/v1"
+model = "eleven_multilingual_v2"           # best quality
+
+[elevenlabs.voice_settings]
+stability = 0.45                            # lower = more expressive, higher = more consistent
+similarity_boost = 0.82                     # how closely to match the voice
+style = 0.35                                # speaking style exaggeration
+use_speaker_boost = true                    # enhances voice clarity
+
+[heygen]
+base_url = "https://api.heygen.com"
+stock_avatar_id = "Daisy-inskirt-20220818"  # professional, neutral fallback
+stock_avatar_style = "normal"
+video_width = 1920
+video_height = 1080
+background_color = "#f5f5f5"
+
+[hyperframes]
+base_url = "https://api.hyperframes.ai/v1"
+width = 1080
+height = 1920

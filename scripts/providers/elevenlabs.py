@@ -6,17 +6,12 @@ from pathlib import Path
 from scripts.providers import http
 from scripts.providers.base import AudioProvider, ProviderError
 from scripts.providers.registry import register
+from scripts.utils.config import load
 
-BASE_URL = "https://api.elevenlabs.io/v1"
-
-# TODO(Phase 4): move the model id + voice settings into declarative provider config.
-MODEL = "eleven_multilingual_v2"  # best quality
-VOICE_SETTINGS = {
-    "stability":         0.45,   # lower = more expressive, higher = more consistent
-    "similarity_boost":  0.82,   # how closely to match the voice
-    "style":             0.35,   # speaking style exaggeration
-    "use_speaker_boost": True,   # enhances voice clarity
-}
+_cfg = load("providers")["elevenlabs"]
+BASE_URL = _cfg["base_url"]
+MODEL = _cfg["model"]
+VOICE_SETTINGS = _cfg["voice_settings"]
 
 
 @register("audio", "elevenlabs")

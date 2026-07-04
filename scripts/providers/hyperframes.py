@@ -5,12 +5,12 @@ import os
 from scripts.providers import http
 from scripts.providers.base import ProviderError, VideoProvider, VideoRequest, VideoStatus
 from scripts.providers.registry import register
+from scripts.utils.config import load
 
-BASE_URL = "https://api.hyperframes.ai/v1"
-
-# TODO(Phase 4): move render config into declarative provider config.
-WIDTH = 1080
-HEIGHT = 1920
+_cfg = load("providers")["hyperframes"]
+BASE_URL = _cfg["base_url"]
+WIDTH = _cfg["width"]
+HEIGHT = _cfg["height"]
 
 
 @register("video", "hyperframes")

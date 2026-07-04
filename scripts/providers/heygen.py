@@ -6,15 +6,15 @@ from pathlib import Path
 from scripts.providers import http
 from scripts.providers.base import ProviderError, VideoProvider, VideoRequest, VideoStatus
 from scripts.providers.registry import register
+from scripts.utils.config import load
 
-BASE_URL = "https://api.heygen.com"
-
-# TODO(Phase 4): move render config into declarative provider config.
-STOCK_AVATAR_ID = "Daisy-inskirt-20220818"  # professional, neutral fallback
-STOCK_AVATAR_STYLE = "normal"
-VIDEO_WIDTH = 1920
-VIDEO_HEIGHT = 1080
-BACKGROUND_COLOR = "#f5f5f5"
+_cfg = load("providers")["heygen"]
+BASE_URL = _cfg["base_url"]
+STOCK_AVATAR_ID = _cfg["stock_avatar_id"]
+STOCK_AVATAR_STYLE = _cfg["stock_avatar_style"]
+VIDEO_WIDTH = _cfg["video_width"]
+VIDEO_HEIGHT = _cfg["video_height"]
+BACKGROUND_COLOR = _cfg["background_color"]
 
 
 @register("video", "heygen")

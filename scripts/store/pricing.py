@@ -1,20 +1,16 @@
 """Usage extraction + cost estimation for recorded calls.
 
-Costs are ESTIMATES computed from the rate table below — not billed amounts —
-so ``cost_estimated`` is always set. Video credits have no public per-call price,
-so those are recorded with usage/cost unknown and flagged.
+Costs are ESTIMATES computed from the rate table in ``scripts/config/pricing.toml``
+— not billed amounts — so ``cost_estimated`` is always set. Video credits have no
+public per-call price, so those are recorded with usage/cost unknown and flagged.
 """
 
-# TODO(you / Phase 4): PLACEHOLDER rates — verify against current provider pricing
-# and move into declarative config. USD per 1M tokens (AI) / per 1k chars (audio).
-RATES = {
-    ("claude", "claude-sonnet-4-20250514"): {"in_per_m": 3.0, "out_per_m": 15.0},
-    ("elevenlabs", None): {"per_k_chars": 0.30},
-}
+from scripts.utils.config import load
 
 
 def estimate(entry: dict) -> dict:
     """Return {input_units, output_units, unit_kind, cost_usd, estimated} for a call."""
+    rates = load("pricing")
     provider = entry.get("provider")
     model = entry.get("model")
     operation = entry.get("operation")
@@ -25,7 +21,7 @@ def estimate(entry: dict) -> dict:
         usage = (response or {}).get("usage") or {}
         in_u = usage.get("input_tokens", 0)
         out_u = usage.get("output_tokens", 0)
-        rate = RATES.get(("claude", model))
+        rate = rates.get("claude", {}).get(model)
         cost = None
         if rate and (in_u or out_u):
             cost = round(in_u / 1e6 * rate["in_per_m"] + out_u / 1e6 * rate["out_per_m"], 6)
@@ -39,7 +35,7 @@ def estimate(entry: dict) -> dict:
 
     if provider == "elevenlabs" and operation == "synthesize":
         chars = len((request or {}).get("text", "") or "")
-        rate = RATES.get(("elevenlabs", None))
+        rate = rates.get("elevenlabs")
         cost = round(chars / 1000 * rate["per_k_chars"], 6) if rate and chars else None
         return {
             "input_units": chars,

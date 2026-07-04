@@ -5,11 +5,12 @@ import os
 from scripts.providers import http
 from scripts.providers.base import AIProvider, ProviderError
 from scripts.providers.registry import register
+from scripts.utils.config import load
 
-API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
-# TODO(Phase 4): move the model id into declarative provider config.
-MODEL = "claude-sonnet-4-20250514"
+_cfg = load("providers")["claude"]
+API_URL = _cfg["api_url"]
+ANTHROPIC_VERSION = _cfg["anthropic_version"]
+MODEL = _cfg["model"]
 
 
 @register("ai", "claude")

@@ -32,7 +32,9 @@ from pathlib import Path
 
 from scripts.providers import ProviderError, get_provider
 from scripts.runtime import RuntimeConfig
+from scripts.utils.config import load
 from scripts.utils.console import rpanel, rprint, rrule
+from scripts.utils.rules import apply_rules
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "AUDIO_DIR"],
@@ -123,39 +125,10 @@ def extract_short_text(script_path: Path) -> tuple[str, str]:
 def clean_script_for_voice(raw: str) -> str:
     """
     Strip everything that shouldn't be spoken aloud.
-    Removes: section markers, B-roll cues, graphic cues, verify flags,
-    markdown headers, checklist items, metadata blocks.
+    Rules (section markers, cues, markdown, etc.) are declared in
+    scripts/config/voice_cleanup.toml.
     """
-    text = raw
-
-    # Remove section markers like [HOOK], [INTRO], [SECTION_1: title], [CTA]
-    text = re.sub(r"\[HOOK\]|\[INTRO\]|\[RECAP\]|\[CTA\]", "", text)
-    text = re.sub(r"\[SECTION_\d+:[^\]]*\]", "", text)
-
-    # Remove production cues
-    text = re.sub(r"\[B-ROLL[^\]]*\]", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\[GRAPHIC:[^\]]*\]", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\[verify before filming\]", "", text, flags=re.IGNORECASE)
-
-    # Remove markdown headers
-    text = re.sub(r"^#{1,6}\s+.+$", "", text, flags=re.MULTILINE)
-
-    # Remove checklist items
-    text = re.sub(r"^- \[[ x]\].+$", "", text, flags=re.MULTILINE)
-
-    # Remove bold/italic markers
-    text = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", text)
-
-    # Remove URLs
-    text = re.sub(r"https?://\S+", "", text)
-
-    # Remove horizontal rules
-    text = re.sub(r"^---+$", "", text, flags=re.MULTILINE)
-
-    # Collapse multiple blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
-
-    return text.strip()
+    return apply_rules(raw, load("voice_cleanup")["rule"]).strip()
 
 
 def estimate_duration(text: str) -> str:
