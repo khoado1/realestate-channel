@@ -31,6 +31,7 @@ import argparse
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
+from scripts.providers import get_provider
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -48,30 +49,15 @@ from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 # ── Anthropic API — insights generation ──────────────────────────────────────
 def call_claude(prompt: str, max_tokens: int = 1000) -> str:
-    import requests
-
     system = f"""You are the analytics strategist for {runtime.CHANNEL_NAME}, a YouTube channel
 about real estate, mortgages, and loans. You analyze performance data and extract
 actionable content insights. Be specific and direct — no generic advice.
 Always tie observations back to content decisions: what to make more of,
 what to change, what to stop doing."""
 
-    payload = {
-        "model": "claude-sonnet-4-20250514",
-        "max_tokens": max_tokens,
-        "system": system,
-        "messages": [{"role": "user", "content": prompt}],
-    }
+    # Analytics degrades gracefully — a failed insight call must not break the report.
     try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"Content-Type": "application/json"},
-            json=payload,
-            timeout=60,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
+        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens)
     except Exception as e:
         return f"[Insight generation unavailable: {e}]"
 
