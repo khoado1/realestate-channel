@@ -41,9 +41,9 @@ runtime = RuntimeConfig(
     env=["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_FALLBACK_VOICE_ID"],
 )
 
-# TODO(you): placeholder — set your real "credit too low" character threshold.
-# When remaining credit drops below this we warn loudly but still generate.
-LOW_CREDIT_THRESHOLD = 5000
+# Warn loudly (but still generate) when ElevenLabs remaining credit, in
+# characters, drops below this — roughly a couple of long-form videos of runway.
+LOW_CREDIT_THRESHOLD = 15000
 
 
 # ── Voice selection ───────────────────────────────────────────────────────────
