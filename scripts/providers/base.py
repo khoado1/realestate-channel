@@ -7,6 +7,7 @@ for a *kind* and gets whichever provider is configured at runtime.
 """
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 
 class ProviderError(Exception):
@@ -29,4 +30,26 @@ class AIProvider(ABC):
 
         Raises ``ProviderError`` on any failure so callers can choose their own
         UX (fatal exit vs. graceful degradation).
+        """
+
+
+class AudioProvider(ABC):
+    """Text-to-speech / audio synthesis."""
+
+    @abstractmethod
+    def synthesize(self, text: str, voice_id: str, out_path: Path, *, timeout: int = 120) -> int:
+        """Generate speech for ``text`` and stream it to ``out_path``.
+
+        Returns the number of bytes written. Raises ``ProviderError`` on failure.
+        """
+
+    @abstractmethod
+    def list_voices(self) -> list[dict]:
+        """Return available voices. Raises ``ProviderError`` on failure."""
+
+    @abstractmethod
+    def usage(self) -> dict:
+        """Return usage/credit info (used, limit, remaining, pct_used).
+
+        Raises ``ProviderError`` on failure.
         """

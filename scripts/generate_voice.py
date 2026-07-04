@@ -30,25 +30,18 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from scripts.providers import ProviderError, get_provider
 from scripts.runtime import RuntimeConfig
+from scripts.utils.console import rpanel, rprint, rrule
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "AUDIO_DIR"],
     env=["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_FALLBACK_VOICE_ID"],
 )
 
-# ElevenLabs model — eleven_multilingual_v2 is best quality
-ELEVENLABS_MODEL = "eleven_multilingual_v2"
-
-# Voice settings — tuned for conversational real estate content
-VOICE_SETTINGS = {
-    "stability":         0.45,   # lower = more expressive, higher = more consistent
-    "similarity_boost":  0.82,   # how closely to match the voice
-    "style":             0.35,   # speaking style exaggeration
-    "use_speaker_boost": True,   # enhances voice clarity
-}
-
-from scripts.utils.console import rpanel, rprint, rrule
+# TODO(you): placeholder — set your real "credit too low" character threshold.
+# When remaining credit drops below this we warn loudly but still generate.
+LOW_CREDIT_THRESHOLD = 5000
 
 
 # ── Voice selection ───────────────────────────────────────────────────────────
@@ -71,17 +64,10 @@ def resolve_voice_id(override: str = "") -> tuple[str, str]:
 
 
 def list_available_voices() -> list[dict]:
-    """Fetch available voices from ElevenLabs account."""
-    import requests
+    """Fetch available voices from the configured audio provider."""
     try:
-        resp = requests.get(
-            "https://api.elevenlabs.io/v1/voices",
-            headers={"xi-api-key": runtime.ELEVENLABS_API_KEY},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json().get("voices", [])
-    except Exception as e:
+        return get_provider("audio").list_voices()
+    except ProviderError as e:
         rprint(f"[yellow]⚠ Could not fetch voices: {e}[/yellow]")
         return []
 
@@ -189,11 +175,9 @@ def generate_audio(
     dry_run: bool = False,
 ) -> bool:
     """
-    Call ElevenLabs TTS API and save audio to output_path.
+    Synthesize audio for the script text and save it to output_path.
     Returns True on success.
     """
-    import requests
-
     if dry_run:
         rprint(f"[dim][DRY RUN] Would generate audio:[/dim]")
         rprint(f"[dim]  Voice ID: {voice_id}[/dim]")
@@ -202,70 +186,33 @@ def generate_audio(
         rprint(f"[dim]  {text[:200]}...[/dim]")
         return True
 
-    if not runtime.ELEVENLABS_API_KEY:
-        rprint("[red]✗ ELEVENLABS_API_KEY not set in .env[/red]")
-        return False
-
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-
-    payload = {
-        "text": text,
-        "model_id": ELEVENLABS_MODEL,
-        "voice_settings": VOICE_SETTINGS,
-    }
-
-    headers = {
-        "xi-api-key": runtime.ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg",
-    }
-
     try:
         rprint(f"[dim]Calling ElevenLabs API ({len(text):,} chars)...[/dim]")
-        resp = requests.post(url, json=payload, headers=headers, timeout=120, stream=True)
-        resp.raise_for_status()
-
-        # Stream audio to file
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-
+        get_provider("audio").synthesize(text, voice_id, output_path)
         file_size_mb = output_path.stat().st_size / 1024 / 1024
         rprint(f"[green]✓ Audio saved: {output_path.name} ({file_size_mb:.1f} MB)[/green]")
         return True
-
-    except requests.exceptions.HTTPError as e:
-        rprint(f"[red]✗ ElevenLabs API error {resp.status_code}: {resp.text[:200]}[/red]")
-        return False
-    except Exception as e:
+    except ProviderError as e:
         rprint(f"[red]✗ Audio generation failed: {e}[/red]")
         return False
 
 
 def check_usage() -> dict:
-    """Check ElevenLabs character usage for current billing period."""
-    import requests
+    """Check ElevenLabs character usage for the current billing period.
+
+    On failure, returns a flagged placeholder (rather than blocking) so the run
+    can proceed; the note is surfaced for the user to fix later.
+    """
     try:
-        resp = requests.get(
-            "https://api.elevenlabs.io/v1/user/subscription",
-            headers={"xi-api-key": runtime.ELEVENLABS_API_KEY},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        used      = data.get("character_count", 0)
-        limit     = data.get("character_limit", 0)
-        remaining = limit - used
+        return get_provider("audio").usage()
+    except ProviderError as e:
         return {
-            "used":      used,
-            "limit":     limit,
-            "remaining": remaining,
-            "pct_used":  round(used / limit * 100, 1) if limit > 0 else 0,
+            "used": 0,
+            "limit": 0,
+            "remaining": 0,
+            "pct_used": 0,
+            "note": f"⚠ ElevenLabs usage unavailable ({e}) — placeholder values; fix credit/credentials later",
         }
-    except Exception:
-        return {}
 
 
 # ── Script file selection ─────────────────────────────────────────────────────
@@ -355,9 +302,17 @@ def main():
     # ── Check usage ──
     if not args.dry_run and runtime.ELEVENLABS_API_KEY:
         usage = check_usage()
-        if usage:
+        if usage.get("note"):
+            # Placeholder path — flagged, non-blocking (see check_usage / LOW_CREDIT_THRESHOLD).
+            rprint(f"\n[yellow]{usage['note']}[/yellow]")
+        elif usage:
             color = "red" if usage["pct_used"] > 80 else "yellow" if usage["pct_used"] > 60 else "green"
             rprint(f"\n[dim]ElevenLabs usage: [{color}]{usage['used']:,}/{usage['limit']:,} chars ({usage['pct_used']}% used)[/{color}][/dim]")
+            if usage["remaining"] < LOW_CREDIT_THRESHOLD:
+                rprint(
+                    f"[red]⚠ ElevenLabs credit low: {usage['remaining']:,} chars remaining "
+                    f"(threshold {LOW_CREDIT_THRESHOLD:,}). Generating anyway — top up / fix later.[/red]"
+                )
 
     # ── Resolve voice ──
     voice_id, voice_label = resolve_voice_id(args.voice or "")

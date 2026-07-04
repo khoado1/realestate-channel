@@ -7,6 +7,7 @@ is persisted.
 """
 
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from scripts.providers.base import ProviderError
@@ -70,6 +71,58 @@ def request_json(
                 "request": json,
                 "http_status": status,
                 "error": error,
+                "latency_ms": int((time.time() - started) * 1000),
+            }
+        )
+
+
+def stream_to_file(
+    method: str,
+    url: str,
+    out_path: Path,
+    *,
+    headers: dict | None = None,
+    json: Any = None,
+    timeout: int = 120,
+    chunk_size: int = 8192,
+) -> int:
+    """Stream a response body to ``out_path``. Returns bytes written. Raises ProviderError."""
+    import requests
+
+    started = time.time()
+    status = resp = None
+    error = None
+    written = 0
+    try:
+        resp = requests.request(
+            method.upper(), url, headers=headers, json=json, timeout=timeout, stream=True
+        )
+        status = resp.status_code
+        resp.raise_for_status()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    written += len(chunk)
+        return written
+    except requests.exceptions.HTTPError as exc:
+        body = resp.text[:200] if resp is not None else ""
+        error = f"HTTP {status}: {body}"
+        raise ProviderError(error) from exc
+    except requests.exceptions.RequestException as exc:
+        error = str(exc)
+        raise ProviderError(error) from exc
+    finally:
+        _record(
+            {
+                "method": method.upper(),
+                "url": url,
+                "request": json,
+                "http_status": status,
+                "error": error,
+                "bytes": written,
+                "out_path": str(out_path),
                 "latency_ms": int((time.time() - started) * 1000),
             }
         )
