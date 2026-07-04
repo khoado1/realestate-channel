@@ -24,7 +24,6 @@ Output:
     - $AUDIO_DIR/YYYY-MM-DD-[slug]-short.mp3
 """
 
-import os
 import sys
 import re
 import argparse
@@ -35,11 +34,8 @@ from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "AUDIO_DIR"],
+    env=["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_FALLBACK_VOICE_ID"],
 )
-
-ELEVENLABS_API_KEY          = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID         = os.getenv("ELEVENLABS_VOICE_ID", "")         # cloned voice
-ELEVENLABS_FALLBACK_VOICE_ID = os.getenv("ELEVENLABS_FALLBACK_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel (ElevenLabs default)
 
 # ElevenLabs model — eleven_multilingual_v2 is best quality
 ELEVENLABS_MODEL = "eleven_multilingual_v2"
@@ -52,20 +48,7 @@ VOICE_SETTINGS = {
     "use_speaker_boost": True,   # enhances voice clarity
 }
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.rule import Rule
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg):       console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""):     console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import rpanel, rprint, rrule
 
 
 # ── Voice selection ───────────────────────────────────────────────────────────
@@ -76,12 +59,12 @@ def resolve_voice_id(override: str = "") -> tuple[str, str]:
     """
     if override:
         return override, "override"
-    if ELEVENLABS_VOICE_ID:
-        return ELEVENLABS_VOICE_ID, "cloned voice"
-    if ELEVENLABS_FALLBACK_VOICE_ID:
+    if runtime.ELEVENLABS_VOICE_ID:
+        return runtime.ELEVENLABS_VOICE_ID, "cloned voice"
+    if runtime.ELEVENLABS_FALLBACK_VOICE_ID:
         rprint("[yellow]⚠ ELEVENLABS_VOICE_ID not set — using fallback voice[/yellow]")
         rprint("[dim]  Set ELEVENLABS_VOICE_ID in .env once you've cloned your voice[/dim]")
-        return ELEVENLABS_FALLBACK_VOICE_ID, "fallback voice"
+        return runtime.ELEVENLABS_FALLBACK_VOICE_ID, "fallback voice"
 
     rprint("[red]✗ No voice ID configured. Set ELEVENLABS_VOICE_ID or ELEVENLABS_FALLBACK_VOICE_ID in .env[/red]")
     sys.exit(1)
@@ -93,7 +76,7 @@ def list_available_voices() -> list[dict]:
     try:
         resp = requests.get(
             "https://api.elevenlabs.io/v1/voices",
-            headers={"xi-api-key": ELEVENLABS_API_KEY},
+            headers={"xi-api-key": runtime.ELEVENLABS_API_KEY},
             timeout=15,
         )
         resp.raise_for_status()
@@ -219,7 +202,7 @@ def generate_audio(
         rprint(f"[dim]  {text[:200]}...[/dim]")
         return True
 
-    if not ELEVENLABS_API_KEY:
+    if not runtime.ELEVENLABS_API_KEY:
         rprint("[red]✗ ELEVENLABS_API_KEY not set in .env[/red]")
         return False
 
@@ -232,7 +215,7 @@ def generate_audio(
     }
 
     headers = {
-        "xi-api-key": ELEVENLABS_API_KEY,
+        "xi-api-key": runtime.ELEVENLABS_API_KEY,
         "Content-Type": "application/json",
         "Accept": "audio/mpeg",
     }
@@ -267,7 +250,7 @@ def check_usage() -> dict:
     try:
         resp = requests.get(
             "https://api.elevenlabs.io/v1/user/subscription",
-            headers={"xi-api-key": ELEVENLABS_API_KEY},
+            headers={"xi-api-key": runtime.ELEVENLABS_API_KEY},
             timeout=10,
         )
         resp.raise_for_status()
@@ -370,7 +353,7 @@ def main():
     )
 
     # ── Check usage ──
-    if not args.dry_run and ELEVENLABS_API_KEY:
+    if not args.dry_run and runtime.ELEVENLABS_API_KEY:
         usage = check_usage()
         if usage:
             color = "red" if usage["pct_used"] > 80 else "yellow" if usage["pct_used"] > 60 else "green"

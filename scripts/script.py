@@ -32,22 +32,7 @@ runtime = RuntimeConfig(
 
 BACKLOG_PATH = Path(runtime.IDEAS_DIR) / "backlog.md"
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.prompt import Prompt
-    from rich.markdown import Markdown
-    from rich.rule import Rule
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg): console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""): console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import RICH, Markdown, Prompt, console, rpanel, rprint, rrule
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────

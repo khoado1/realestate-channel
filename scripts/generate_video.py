@@ -30,7 +30,6 @@ Output:
     - $VIDEO_DIR/render-log.md                  (job tracking)
 """
 
-import os
 import sys
 import re
 import json
@@ -43,13 +42,8 @@ from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"],
+    env=["HEYGEN_API_KEY", "HEYGEN_AVATAR_ID", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"],
 )
-
-HEYGEN_API_KEY   = os.getenv("HEYGEN_API_KEY", "")
-HEYGEN_AVATAR_ID = os.getenv("HEYGEN_AVATAR_ID", "")         # custom avatar (set after creation)
-
-ELEVENLABS_API_KEY   = os.getenv("ELEVENLABS_API_KEY", "")
-ELEVENLABS_VOICE_ID  = os.getenv("ELEVENLABS_VOICE_ID", "")
 
 HEYGEN_BASE_URL      = "https://api.heygen.com"
 HYPERFRAMES_BASE_URL = "https://api.hyperframes.ai/v1"  # update if endpoint changes
@@ -72,22 +66,17 @@ SHORTS_HEIGHT = 1920
 POLL_INTERVAL = 15
 POLL_TIMEOUT  = 1800   # 30 minutes max wait
 
-# ── Rich setup ────────────────────────────────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    from rich.rule import Rule
-    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
-
-def rprint(msg):       console.print(msg) if RICH else print(msg)
-def rpanel(msg, **kw): console.print(Panel(msg, **kw)) if RICH else print(f"\n{'='*60}\n{msg}\n{'='*60}")
-def rrule(msg=""):     console.print(Rule(msg)) if RICH else print(f"\n--- {msg} ---")
+from scripts.utils.console import (
+    RICH,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    console,
+    rpanel,
+    rprint,
+    rrule,
+)
 
 
 # ── HeyGen API ────────────────────────────────────────────────────────────────
@@ -95,12 +84,12 @@ def heygen_request(method: str, endpoint: str, payload: dict = None) -> dict:
     """Make a HeyGen API request."""
     import requests
 
-    if not HEYGEN_API_KEY:
+    if not runtime.HEYGEN_API_KEY:
         rprint("[red]✗ HEYGEN_API_KEY not set in .env[/red]")
         sys.exit(1)
 
     headers = {
-        "X-Api-Key": HEYGEN_API_KEY,
+        "X-Api-Key": runtime.HEYGEN_API_KEY,
         "Content-Type": "application/json",
     }
     url = f"{HEYGEN_BASE_URL}/{endpoint.lstrip('/')}"
@@ -127,8 +116,8 @@ def resolve_avatar_id() -> tuple[str, str]:
     Resolve which HeyGen avatar to use.
     Returns (avatar_id, label).
     """
-    if HEYGEN_AVATAR_ID:
-        return HEYGEN_AVATAR_ID, "custom avatar"
+    if runtime.HEYGEN_AVATAR_ID:
+        return runtime.HEYGEN_AVATAR_ID, "custom avatar"
     rprint("[yellow]⚠ HEYGEN_AVATAR_ID not set — using stock avatar[/yellow]")
     rprint("[dim]  Set HEYGEN_AVATAR_ID in .env after creating your avatar at heygen.com[/dim]")
     return HEYGEN_STOCK_AVATAR_ID, f"stock avatar ({HEYGEN_STOCK_AVATAR_ID})"
@@ -147,7 +136,7 @@ def upload_audio_to_heygen(audio_path: Path) -> str:
         audio_data = f.read()
 
     headers = {
-        "X-Api-Key": HEYGEN_API_KEY,
+        "X-Api-Key": runtime.HEYGEN_API_KEY,
         "Content-Type": "audio/mpeg",
     }
 
@@ -311,7 +300,7 @@ def hyperframes_request(method: str, endpoint: str, payload: dict = None) -> dic
     # NOTE: HyperFrames API key reuses ElevenLabs key in some integrations,
     # but check hyperframes.ai for their current auth method.
     headers = {
-        "Authorization": f"Bearer {ELEVENLABS_API_KEY}",
+        "Authorization": f"Bearer {runtime.ELEVENLABS_API_KEY}",
         "Content-Type": "application/json",
     }
     url = f"{HYPERFRAMES_BASE_URL}/{endpoint.lstrip('/')}"

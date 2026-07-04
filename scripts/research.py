@@ -30,18 +30,10 @@ runtime = RuntimeConfig(
 # Watchlist file — add topics here for --auto mode
 WATCHLIST_PATH = Path(runtime.IDEAS_DIR) / "watchlist.md"
 
-# ── Try importing rich for pretty output ─────────────────────────────────────
-try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.markdown import Markdown
-    from rich.panel import Panel
-    from rich import print as rprint
-    RICH = True
-    console = Console()
-except ImportError:
-    RICH = False
-    console = None
+# ── Rich for pretty output ───────────────────────────────────────────────────
+from scripts.utils.console import RICH, Panel, Table, console
+
+if not RICH:
     print("⚠ rich not installed — run: pip3 install rich")
     print("  Falling back to plain text output.\n")
 
