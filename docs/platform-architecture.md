@@ -16,7 +16,8 @@ multi-user, workflow-driven SaaS product with web/desktop/mobile clients.
 | Credential/secrets storage | **Encrypted columns in Postgres** (no Vault) | Vault (Community or Enterprise) adds real ops overhead (unseal keys, HA, storage backend) that isn't justified at current scale. Revisit only if a tenant requires it for compliance. |
 | Social platforms | **YouTube first, TikTok later** | Scopes the first Integration/publish provider implementation. |
 | Deployment target | **Self-hosted, Docker Compose (dev) / Kubernetes (prod)** on our own infrastructure | No managed-cloud-compute dependency; matches the self-hosted-storage/self-hosted-secrets choices above. |
-| Backend language/framework | **Python**, staying with the existing stack | Temporal's Python SDK is production-grade; the workload is I/O-bound (call external AI/media APIs, wait, store result) so the GIL doesn't bite; AI provider SDKs ship Python-first; the existing `scripts/providers/` registry and pipeline scripts (`research.py`, `script.py`, `generate_voice.py`, `generate_video.py`, `repurpose.py`, `analytics.py`) get promoted to services instead of rewritten. API layer: **FastAPI** (async, generates OpenAPI natively — feeds the polyrepo shared-contract need). Validation/typing: **Pydantic**. Data layer: **SQLAlchemy + Alembic** for the Postgres model + migrations. Java/.NET were considered but offer no benefit here since there's no in-process CPU-bound hot path to justify JVM/CLR performance. |
+| Backend language/framework (core) | **Java / Spring Boot** | Chosen over the original Python plan (and over C#/.NET) to credibly demonstrate enterprise-grade, DDD/component-based/event-driven architecture to investors and traditional-enterprise consulting prospects (healthcare/insurance/banking, which run Java/.NET internally) — Spring's DI container, module conventions, and idioms (Spring Modulith, Axon for CQRS/event sourcing) give this natively, where Python's equivalent is assembled rather than idiomatic. Java over C#: broader enterprise vertical footprint (esp. finance/banking) and larger long-term hiring pool. API layer: **Spring Boot (Spring MVC)**. Data layer: **Spring Data JPA/Hibernate + Flyway** for the Postgres model + migrations. Shared API contract for the polyrepo clients: **springdoc-openapi** (auto-generates OpenAPI from controllers, same role FastAPI would have played). Validation: **Jakarta Bean Validation**. Orchestration: **Temporal Java SDK**. |
+| Backend language (AI/media workers) | **Python**, kept for the research/script/voice/video Temporal activities | The existing `scripts/providers/` registry and pipeline scripts (`research.py`, `script.py`, `generate_voice.py`, `generate_video.py`, `repurpose.py`) get promoted into a Python worker service rather than rewritten — AI/media provider SDKs ship Python-first, and the workload here is I/O-bound so the GIL doesn't matter. Wired to the Java orchestrator via **Temporal's native cross-language worker support**: the `ContentPipelineWorkflow` (Java) invokes these activities on shared task queues regardless of implementation language. |
 | CI/CD | **GitHub Actions** + **GHCR** (container registry) + **ArgoCD** (GitOps deploy to k8s) | GitOps fits the self-hosted k8s target — audit trail and drift detection instead of CI pushing directly. Each polyrepo client repo builds its own artifact independently (web static build, desktop installer per OS, mobile store build); the backend repo builds/pushes images and lets ArgoCD reconcile the cluster. |
 | Observability | Self-hosted **Grafana stack**: Prometheus (metrics) + Loki (logs) + Tempo (traces, via OpenTelemetry) + Grafana (dashboards/alerting via Alertmanager) | All self-hostable and integrate with each other and with k8s. Temporal's own Web UI still gives per-workflow/activity visibility; `temporal_workflow_id`/`temporal_activity_id` on WorkflowRun/StepRun cross-link app UI to it. |
 | Billing/subscription | Deferred integration; **usage-based metering tied to StepRun volume** is the intended shape when it's built, using **Stripe Billing** as the processor | AI provider calls cost real money per use, so usage-based (vs. seat/flat) protects margin. Not modeled in the schema yet beyond the `Organization` entity being the natural anchor for a future `subscription`/`plan` relation. |
@@ -232,77 +233,107 @@ One workflow type, `ContentPipelineWorkflow`, per `WorkflowRun`. It orchestrates
 every DB write and every external API call happens inside an Activity, since Temporal workflow code
 must stay deterministic.
 
-```python
-@workflow.defn
-class ContentPipelineWorkflow:
-    def __init__(self) -> None:
-        self._review_decisions: dict[str, str] = {}  # step_run_id -> "approved" | "rejected"
+The orchestrator (this workflow) is **Java**, running on Temporal's Java SDK. The research/script/voice/
+video activities it calls are implemented by a separate **Python** worker via Temporal's cross-language
+support — same task queues, same activity type names/JSON serialization, no shared code required.
 
-    @workflow.run
-    async def run(self, workflow_run_id: str) -> None:
-        step_defs = await workflow.execute_activity(
-            load_step_definitions, workflow_run_id,
-            start_to_close_timeout=timedelta(minutes=1),
-        )
+```java
+@WorkflowInterface
+public interface ContentPipelineWorkflow {
+    @WorkflowMethod
+    void run(String workflowRunId);
 
-        for step_def in step_defs:
-            step_run_id = await workflow.execute_activity(
-                create_step_run, workflow_run_id, step_def.id,
-                start_to_close_timeout=timedelta(minutes=1),
-            )
+    @SignalMethod
+    void approveStep(String stepRunId);
 
-            await workflow.execute_activity(
-                STEP_ACTIVITY_MAP[step_def.step_type],
-                step_run_id,
-                task_queue=STEP_TASK_QUEUE[step_def.step_type],
-                start_to_close_timeout=timedelta(minutes=30),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=5,
-                    non_retryable_error_types=["InvalidCredentialsError", "ContentPolicyError"],
-                ),
-            )
+    @SignalMethod
+    void rejectStep(String stepRunId, String reason);
+}
 
-            if step_def.requires_review:
-                await workflow.execute_activity(mark_awaiting_review, step_run_id, ...)
-                await workflow.wait_condition(lambda: step_run_id in self._review_decisions)
-                if self._review_decisions.pop(step_run_id) == "rejected":
-                    await workflow.execute_activity(mark_run_failed, workflow_run_id, ...)
-                    return
+public class ContentPipelineWorkflowImpl implements ContentPipelineWorkflow {
+    private final Map<String, String> reviewDecisions = new HashMap<>(); // stepRunId -> "approved" | "rejected"
 
-            await workflow.execute_activity(mark_step_completed, step_run_id, ...)
+    private final PipelineActivities controlActivities = Workflow.newActivityStub(
+        PipelineActivities.class,
+        ActivityOptions.newBuilder().setStartToCloseTimeout(Duration.ofMinutes(1)).build()
+    );
 
-        await workflow.execute_activity(mark_run_completed, workflow_run_id, ...)
-        await workflow.execute_activity(schedule_analytics_polling, workflow_run_id, ...)
+    @Override
+    public void run(String workflowRunId) {
+        List<StepDefinition> stepDefs = controlActivities.loadStepDefinitions(workflowRunId);
 
-    @workflow.signal
-    def approve_step(self, step_run_id: str) -> None:
-        self._review_decisions[step_run_id] = "approved"
+        for (StepDefinition stepDef : stepDefs) {
+            String stepRunId = controlActivities.createStepRun(workflowRunId, stepDef.id());
 
-    @workflow.signal
-    def reject_step(self, step_run_id: str, reason: str) -> None:
-        self._review_decisions[step_run_id] = "rejected"
+            // routed to the step type's own task queue (research-tq, voice-tq, ...) so the
+            // Python worker pool serving that queue picks it up regardless of orchestrator language
+            PipelineActivities stepActivities = Workflow.newActivityStub(
+                PipelineActivities.class,
+                ActivityOptions.newBuilder()
+                    .setTaskQueue(STEP_TASK_QUEUE.get(stepDef.stepType()))
+                    .setStartToCloseTimeout(Duration.ofMinutes(30))
+                    .setRetryOptions(RetryOptions.newBuilder()
+                        .setMaximumAttempts(5)
+                        .setDoNotRetry("InvalidCredentialsException", "ContentPolicyException")
+                        .build())
+                    .build()
+            );
+            stepActivities.runStep(stepDef.stepType(), stepRunId);
+
+            if (stepDef.requiresReview()) {
+                controlActivities.markAwaitingReview(stepRunId);
+                Workflow.await(() -> reviewDecisions.containsKey(stepRunId));
+                if ("rejected".equals(reviewDecisions.remove(stepRunId))) {
+                    controlActivities.markRunFailed(workflowRunId);
+                    return;
+                }
+            }
+
+            controlActivities.markStepCompleted(stepRunId);
+        }
+
+        controlActivities.markRunCompleted(workflowRunId);
+        controlActivities.scheduleAnalyticsPolling(workflowRunId);
+    }
+
+    @Override
+    public void approveStep(String stepRunId) {
+        reviewDecisions.put(stepRunId, "approved");
+    }
+
+    @Override
+    public void rejectStep(String stepRunId, String reason) {
+        reviewDecisions.put(stepRunId, "rejected");
+    }
+}
 ```
 
 - `WorkflowRun.temporal_workflow_id` is set deterministically (e.g. `content-run-{workflow_run_id}`) so
   the API can always map a DB row to its Temporal execution and vice versa.
-- Review gates use `workflow.wait_condition` on a signal — the workflow blocks durably (no polling, no
-  cost while waiting) until the API delivers `approve_step`/`reject_step` in response to a user action
-  in the web/mobile client.
-- Retries are handled by Temporal's built-in `RetryPolicy` per activity — `StepRun.attempt_count` just
+- Review gates use `Workflow.await(...)` on a signal — the workflow blocks durably (no polling, no cost
+  while waiting) until the API delivers `approveStep`/`rejectStep` in response to a user action in the
+  web/mobile client.
+- Retries are handled by Temporal's built-in `RetryOptions` per activity — `StepRun.attempt_count` just
   mirrors Temporal's own attempt counter for display, the app doesn't implement retry logic itself.
   Errors like bad credentials or a content-policy rejection are raised as non-retryable so they fail
   straight to `awaiting_review`/`failed` instead of burning retry attempts.
 
 ### Activities (one per step type)
 
-| step_type | Activity | Wraps existing script |
-|---|---|---|
-| research | `run_research_activity` | `scripts/research.py` |
-| script | `run_script_activity` | `scripts/script.py` |
-| voice | `run_voice_activity` | `scripts/generate_voice.py` |
-| video | `run_video_activity` | `scripts/generate_video.py` |
-| repurpose | `run_repurpose_activity` | `scripts/repurpose.py` |
-| publish | `run_publish_activity` | new — YouTube/TikTok publish provider |
+| step_type | Activity | Implemented by | Wraps existing script |
+|---|---|---|---|
+| research | `runStep("research", ...)` | Python worker | `scripts/research.py` |
+| script | `runStep("script", ...)` | Python worker | `scripts/script.py` |
+| voice | `runStep("voice", ...)` | Python worker | `scripts/generate_voice.py` |
+| video | `runStep("video", ...)` | Python worker | `scripts/generate_video.py` |
+| repurpose | `runStep("repurpose", ...)` | Python worker | `scripts/repurpose.py` |
+| publish | `runStep("publish", ...)` | Java worker | new — YouTube/TikTok publish provider |
+
+`controlActivities` (load/create/mark-status calls) run on the Java side, close to the database, since
+they're plain persistence operations with no AI/media provider dependency — no reason to cross the
+language boundary for those. `publish` runs on the Java side too: it's not an AI/media generation step,
+just an API call to YouTube/TikTok plus writing a `PublishedPost` row, so it stays with the core rather
+than crossing into the Python worker.
 
 Each activity is assigned its own **task queue** (`research-tq`, `script-tq`, `voice-tq`, `video-tq`, ...)
 so worker pools can scale independently per step type later (e.g. more video workers than research
@@ -359,10 +390,47 @@ What differs is the value story and which features are worth gating, not the und
 
 Both audiences get the core pipeline free/cheap long enough to feel the value (compliance-aware
 generation, the analytics-informed feedback loop) before any payment ask — "keep the thing that's
-already been working for you" sells better than pricing upfront, especially since it's still
-undecided how users will respond to being asked for money at all. The team-specific features above
+already been working for you" sells better than pricing upfront. The team-specific features above
 are the natural paid tier for agencies once that ask comes.
 
-## 8. Open questions (not yet decided)
+**Decision: split timing strategy per audience**, rather than one blanket policy:
 
-- Whether/when to actually start monetization (this section defines the tier *shape*; timing itself is still undecided)
+- **Solo tier — permanent freemium (option C)**: free/cheap forever with capped usage (protects
+  AI-provider cost exposure regardless of billing timing), no artificial trial deadline. The paywall is
+  the team-tier feature set above, not a calendar date — "when to start monetizing solo users" resolves
+  itself as "whenever those features ship," not as a date to schedule.
+- **Agency tier — design-partner pilot (option E)**: free or heavily discounted access for a small
+  cohort of agencies in exchange for feedback, specifically to validate the compliance/audit-trail value
+  proposition before setting real team-tier pricing. Closer to a consulting/enterprise sales motion than
+  self-serve, which fits how agencies actually evaluate and buy software better than a time-boxed trial
+  would.
+
+Rejected for now: charging from day one (option B, too much adoption risk before the product's proven),
+a blanket free-beta-then-flip-the-switch policy (option A, doesn't distinguish the two audiences' buying
+behavior), and a standard time-boxed trial (option D, natural fit for the solo tier but not for agencies,
+who want a longer, relationship-based pilot before committing budget).
+
+## 8. Future direction — explicitly deferred, not driving current design
+
+Idea considered: generalize this platform's infrastructure (multi-tenant, project-oriented, workflow-driven,
+multi-client) into a reusable "cookie-cutter" template — a system for building other systems, in the vein
+of OutSystems or Salesforce's Force.com platform, that could be white-labeled into other verticals beyond
+real estate/lending content (e.g. the hospital billing example this came from).
+
+**Decision: not now.** Companies that succeeded at "one platform, many verticals" (Salesforce, Monday.com,
+Airtable, Notion) generalized *after* nailing one vertical first — the generic engine emerged from
+refactoring what already worked for real customers, not from architecting generically against
+hypothetical future products. Building the reusable template before this product has one real customer
+means designing abstractions against guesses instead of requirements, and directly conflicts with this
+project's own stated engineering principle of not designing for hypothetical future requirements.
+
+Nothing currently designed forecloses this direction later: Temporal + the `Organization`/`Project`/
+`Workflow`/`StepRun` schema + the provider-registry plugin pattern is already the right shape for a
+future multi-vertical substrate. The one genuinely vertical-specific piece is `step_type`/`asset_type`
+being a fixed enum rather than a pluggable metadata layer — a contained change to make later, if and when
+a real second vertical asks for it, not a speculative one to make now.
+
+## 9. Open questions (not yet decided)
+
+None currently — every decision point raised in this whiteboard session is recorded above. Revisit this
+section as new questions surface during implementation.

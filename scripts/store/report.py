@@ -2,17 +2,11 @@
 
 import sys
 
-from scripts.store.calls import _conn_get
+from scripts.store.repository import get_repository
 
 
 def run(limit: int = 20) -> int:
-    conn = _conn_get()
-    rows = conn.execute(
-        "SELECT id, ts, provider, operation, status, input_units, output_units, "
-        "unit_kind, cost_usd, cost_estimated, latency_ms FROM calls "
-        "ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
+    rows = get_repository().list_calls(limit)
     if not rows:
         print("No calls recorded yet.")
         return 0

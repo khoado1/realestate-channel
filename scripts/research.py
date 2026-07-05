@@ -20,7 +20,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-from scripts.providers import ProviderError, get_provider
+from scripts.providers.calls import call_ai
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -67,22 +67,9 @@ DEFAULT_WATCHLIST = [
 ]
 
 # ── Anthropic API call ────────────────────────────────────────────────────────
-def call_claude(prompt: str, system: str = "") -> str:
+def call_claude(prompt: str) -> str:
     """Call the configured AI provider and return its text response."""
-    try:
-        return get_provider("ai").complete(prompt, system=system or build_system_prompt())
-    except ProviderError as e:
-        print(f"✗ Claude API error: {e}")
-        sys.exit(1)
-
-
-def build_system_prompt() -> str:
-    return f"""You are the research assistant for {runtime.CHANNEL_NAME}, a YouTube channel about
-real estate, mortgages, and loans. Your audience is intermediate — they've done research
-but haven't done a deal yet. Tone is conversational and relatable, like a knowledgeable friend.
-
-When generating video ideas, always output valid JSON only — no preamble, no markdown fences.
-Format exactly as shown in the user prompt."""
+    return call_ai("research", prompt, channel_name=runtime.CHANNEL_NAME, on_error="exit")
 
 
 # ── Research functions ────────────────────────────────────────────────────────

@@ -1,0 +1,14 @@
+# API gateway tunables — retry/backoff and circuit breaker. Edit here — no
+# code changes needed. See scripts/gateway/.
+
+[retry]
+max_attempts = 3          # total attempts, including the first
+base_delay = 0.5          # seconds before the first retry
+max_delay = 8.0           # cap on backoff delay
+jitter = 0.2              # +/- fraction of randomness applied to each delay
+retry_status_codes = [429, 500, 502, 503, 504]
+
+[circuit_breaker]
+failure_threshold = 5     # consecutive failures before a host's circuit opens
+reset_timeout = 30        # seconds an open circuit waits before trying again (half-open)
+half_open_max_calls = 1   # trial calls allowed while half-open

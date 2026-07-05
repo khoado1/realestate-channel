@@ -1,9 +1,11 @@
 """Shared HTTP boundary for providers.
 
 All provider API calls funnel through here so error handling is uniform and
-there is a single seam for recording calls. Phase 3's call store registers a
-recorder via ``set_recorder``; until then the recorder is a no-op and nothing
-is persisted.
+there is a single seam for recording calls. Transport-level resilience
+(retry/backoff, circuit breaking) lives one layer down in ``scripts.gateway``;
+this module owns response parsing, ``ProviderError`` mapping, and recording.
+Phase 3's call store registers a recorder via ``set_recorder``; until then the
+recorder is a no-op and nothing is persisted.
 """
 
 import contextvars
@@ -12,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
+from scripts.gateway import GatewayError, send
 from scripts.providers.base import ProviderError
 
 # The call store installs its recorder here. Signature: (dict) -> None.
@@ -68,7 +71,7 @@ def request_json(
     status = resp = response = None
     error = None
     try:
-        resp = requests.request(
+        resp = send(
             method.upper(), url, headers=headers, json=json, data=data, params=params, timeout=timeout
         )
         status = resp.status_code
@@ -79,7 +82,7 @@ def request_json(
         body = resp.text[:300] if resp is not None else ""
         error = f"HTTP {status}: {body}"
         raise ProviderError(error) from exc
-    except requests.exceptions.RequestException as exc:
+    except GatewayError as exc:
         error = str(exc)
         raise ProviderError(error) from exc
     finally:
@@ -115,9 +118,7 @@ def stream_to_file(
     error = None
     written = 0
     try:
-        resp = requests.request(
-            method.upper(), url, headers=headers, json=json, timeout=timeout, stream=True
-        )
+        resp = send(method.upper(), url, headers=headers, json=json, timeout=timeout, stream=True)
         status = resp.status_code
         resp.raise_for_status()
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,6 +133,11 @@ def stream_to_file(
         error = f"HTTP {status}: {body}"
         raise ProviderError(error) from exc
     except requests.exceptions.RequestException as exc:
+        # Mid-stream failures (e.g. connection reset while iterating chunks) —
+        # the initial connect's own retries already happened inside send().
+        error = str(exc)
+        raise ProviderError(error) from exc
+    except GatewayError as exc:
         error = str(exc)
         raise ProviderError(error) from exc
     finally:
