@@ -26,7 +26,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-from scripts.providers import ProviderError, get_provider
+from scripts.providers.calls import call_ai, youtube_get
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -38,35 +38,9 @@ from scripts.utils.console import rpanel, rprint, rrule
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────
-def call_claude(prompt: str, system: str, max_tokens: int = 1000) -> str:
+def call_claude(prompt: str, max_tokens: int = 1000) -> str:
     """Call the configured AI provider and return its text response."""
-    try:
-        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens, timeout=120)
-    except ProviderError as e:
-        print(f"✗ Claude API error: {e}")
-        sys.exit(1)
-
-
-def build_system_prompt() -> str:
-    return f"""You are the content repurposing strategist for {runtime.CHANNEL_NAME}, a YouTube channel
-about real estate, mortgages, and loans.
-
-Audience: Intermediate — researched but haven't done a deal yet.
-Tone: Conversational and relatable. Like a knowledgeable friend, not a professor or hype guy.
-
-Platform-specific rules:
-- LinkedIn: slightly more professional, lead with a data point or counterintuitive observation,
-  warm but authoritative, 200-250 words, no hashtag stuffing (max 3 relevant hashtags)
-- X/Twitter: punchy, each tweet standalone, 5-7 tweets, last tweet = CTA to watch the video,
-  threads feel native not copy-pasted, no hashtags except 1 on the last tweet
-- YouTube Short: reframe the single most surprising/counterintuitive moment — NOT a summary,
-  45-60 seconds spoken (~120-150 words), hook on first line, end with "full breakdown on the channel"
-- Newsletter: go one level deeper than the video — add context you didn't have time to cover,
-  350-400 words, conversational, structured with a clear takeaway at the end
-
-Never use: "game-changer", "deep dive", "unpack", "Furthermore", "Moreover", "In conclusion"
-Never start any piece with "Hey guys" or "Welcome back"
-Each piece must feel native to its platform — not like a repaste of the video script."""
+    return call_ai("repurpose", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, timeout=120, on_error="exit")
 
 
 # ── Input: fetch transcript from YouTube URL ──────────────────────────────────
@@ -112,13 +86,12 @@ def fetch_youtube_transcript(url: str) -> tuple[str, str]:
     # Fetch title via YouTube Data API if key is set
     if runtime.YOUTUBE_API_KEY:
         try:
-            import requests
-            resp = requests.get(
-                "https://www.googleapis.com/youtube/v3/videos",
-                params={"part": "snippet", "id": vid_id, "key": runtime.YOUTUBE_API_KEY},
+            data = youtube_get(
+                "videos",
+                {"part": "snippet", "id": vid_id},
+                api_key=runtime.YOUTUBE_API_KEY,
                 timeout=10,
             )
-            data = resp.json()
             items = data.get("items", [])
             if items:
                 title = items[0]["snippet"]["title"]
@@ -216,7 +189,7 @@ Rules:
 - Do NOT start with "I just posted" or reference the YouTube video in the opening
 
 Write the LinkedIn post now, no preamble:"""
-    return call_claude(prompt, build_system_prompt())
+    return call_claude(prompt)
 
 
 def generate_twitter(title: str, content: str) -> str:
@@ -237,7 +210,7 @@ Rules:
 - Number each tweet: 1/ 2/ 3/ etc.
 
 Write the full thread now, no preamble:"""
-    return call_claude(prompt, build_system_prompt())
+    return call_claude(prompt)
 
 
 def generate_short(title: str, content: str) -> str:
@@ -255,7 +228,7 @@ Rules:
 - Format with [HOOK], [BODY], [CTA] markers
 
 Write the Short script now, no preamble:"""
-    return call_claude(prompt, build_system_prompt())
+    return call_claude(prompt)
 
 
 def generate_newsletter(title: str, content: str) -> str:
@@ -274,7 +247,7 @@ Rules:
 - No sign-off, no "subscribe" CTA — this is a section within a larger newsletter
 
 Write the newsletter section now, no preamble:"""
-    return call_claude(prompt, build_system_prompt())
+    return call_claude(prompt)
 
 
 # ── Save output ───────────────────────────────────────────────────────────────

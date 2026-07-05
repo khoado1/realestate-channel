@@ -11,11 +11,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from scripts.store import db, pricing
-
-_conn = None
-_db_path: Path | None = None
-_artifacts_dir: Path | None = None
+from scripts.store import pricing
+from scripts.store.repository import get_repository
 
 # Redact any request field whose key hints at a secret (auth normally lives in
 # headers, which are never recorded — this is defense in depth).
@@ -35,25 +32,6 @@ _AUTH = {
         "Content-Type": "application/json",
     },
 }
-
-
-def _resolve_paths() -> tuple[Path, Path]:
-    global _db_path, _artifacts_dir
-    if _db_path is None:
-        from scripts.runtime import RuntimeConfig
-
-        data_dir = Path(RuntimeConfig(paths=["DATA_DIR"]).DATA_DIR)
-        _db_path = data_dir / "calls.db"
-        _artifacts_dir = data_dir / "artifacts"
-    return _db_path, _artifacts_dir
-
-
-def _conn_get():
-    global _conn
-    if _conn is None:
-        db_path, _ = _resolve_paths()
-        _conn = db.connect(db_path)
-    return _conn
 
 
 def _redact(obj):
@@ -82,43 +60,48 @@ def record(entry: dict) -> int:
     response = entry.get("response")
     status = "error" if entry.get("error") else "ok"
 
-    conn = _conn_get()
-    cur = conn.execute(
-        """INSERT INTO calls (ts, provider, kind, operation, model, method, url,
-             request_json, response_json, http_status, status, error, latency_ms,
-             input_units, output_units, unit_kind, cost_usd, cost_estimated)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            datetime.now().isoformat(timespec="seconds"),
-            entry.get("provider"), entry.get("kind"), entry.get("operation"), entry.get("model"),
-            entry.get("method"), entry.get("url"),
-            jsonlib.dumps(request) if request is not None else None,
-            jsonlib.dumps(response) if response is not None else None,
-            entry.get("http_status"), status, entry.get("error"), entry.get("latency_ms"),
-            cost["input_units"], cost["output_units"], cost["unit_kind"],
-            cost["cost_usd"], 1 if cost["estimated"] else 0,
-        ),
+    repo = get_repository()
+    call_id = repo.insert_call(
+        {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "provider": entry.get("provider"),
+            "kind": entry.get("kind"),
+            "operation": entry.get("operation"),
+            "model": entry.get("model"),
+            "method": entry.get("method"),
+            "url": entry.get("url"),
+            "request_json": jsonlib.dumps(request) if request is not None else None,
+            "response_json": jsonlib.dumps(response) if response is not None else None,
+            "http_status": entry.get("http_status"),
+            "status": status,
+            "error": entry.get("error"),
+            "latency_ms": entry.get("latency_ms"),
+            "input_units": cost["input_units"],
+            "output_units": cost["output_units"],
+            "unit_kind": cost["unit_kind"],
+            "cost_usd": cost["cost_usd"],
+            "cost_estimated": 1 if cost["estimated"] else 0,
+        }
     )
-    call_id = cur.lastrowid
 
     out_path = entry.get("out_path")
     if out_path and Path(out_path).exists():
         p = Path(out_path)
         mime = {".mp3": "audio/mpeg", ".mp4": "video/mp4"}.get(p.suffix, "application/octet-stream")
         kind = {".mp3": "audio", ".mp4": "video"}.get(p.suffix, "file")
-        conn.execute(
-            "INSERT INTO artifacts (call_id, direction, kind, path, bytes, sha256, mime) VALUES (?,?,?,?,?,?,?)",
-            (call_id, "out", kind, str(p), p.stat().st_size, _sha256(p), mime),
+        repo.insert_artifact(
+            {
+                "call_id": call_id, "direction": "out", "kind": kind,
+                "path": str(p), "bytes": p.stat().st_size, "sha256": _sha256(p), "mime": mime,
+            }
         )
 
-    conn.commit()
     return call_id
 
 
 def replay(call_id: int, execute: bool = False) -> dict:
     """Reconstruct a stored call. With execute=True, re-issue it (auth from env)."""
-    conn = _conn_get()
-    row = conn.execute("SELECT * FROM calls WHERE id = ?", (call_id,)).fetchone()
+    row = get_repository().get_call(call_id)
     if row is None:
         raise KeyError(f"No call with id {call_id}")
 

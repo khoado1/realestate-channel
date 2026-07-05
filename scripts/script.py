@@ -23,7 +23,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from scripts.providers import ProviderError, get_provider
+from scripts.providers.calls import call_ai
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -37,37 +37,9 @@ from scripts.utils.console import RICH, Markdown, Prompt, console, rpanel, rprin
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────
-def call_claude(prompt: str, system: str, max_tokens: int = 1000) -> str:
+def call_claude(prompt: str, max_tokens: int = 1000) -> str:
     """Call the configured AI provider and return its text response."""
-    try:
-        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens, timeout=120)
-    except ProviderError as e:
-        print(f"✗ Claude API error: {e}")
-        sys.exit(1)
-
-
-def build_system_prompt() -> str:
-    return f"""You are the head writer for {runtime.CHANNEL_NAME}, a YouTube channel about real estate,
-mortgages, and loans. You write in a conversational, relatable tone — like a knowledgeable
-friend explaining things over coffee.
-
-Audience: Intermediate. They've researched buying or investing but haven't pulled the trigger.
-Skip basics (what a mortgage is). Don't skip nuance (how points affect break-even, real DTI impact).
-
-Writing rules:
-- Short sentences. One idea per sentence where possible.
-- Second person ("you") not third ("investors")
-- Analogies over abstractions — make it concrete
-- Occasional rhetorical questions to maintain engagement
-- Never start with "Hey guys, welcome back"
-- Never use: "game-changer", "deep dive", "unpack", "Furthermore", "Moreover", "In conclusion"
-- Hook must land in the first 15 seconds
-- Every script ends with exactly one CTA
-
-Always include this disclaimer variant somewhere natural in the script:
-"This isn't financial advice — always talk to a licensed professional before making any decisions."
-
-Flag any stat, rate, or price with [verify before filming] inline."""
+    return call_ai("script", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, timeout=120, on_error="exit")
 
 
 # ── Script generation ─────────────────────────────────────────────────────────
@@ -95,7 +67,7 @@ Target spoken length: 6-10 minutes (roughly 900-1500 words at natural speaking p
 
 Write the full script now — not an outline, the actual word-for-word script."""
 
-    return call_claude(prompt, build_system_prompt(), max_tokens=1000)
+    return call_claude(prompt)
 
 
 def generate_short(topic: str, longform_script: str) -> str:
@@ -119,7 +91,7 @@ Format:
 
 Write the Short script now."""
 
-    return call_claude(prompt, build_system_prompt(), max_tokens=1000)
+    return call_claude(prompt)
 
 
 def generate_metadata(topic: str, longform_script: str) -> dict:
@@ -146,7 +118,7 @@ Return ONLY a JSON object, no preamble, no markdown fences:
   ]
 }}"""
 
-    raw = call_claude(prompt, build_system_prompt(), max_tokens=1000)
+    raw = call_claude(prompt)
 
     try:
         clean = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()

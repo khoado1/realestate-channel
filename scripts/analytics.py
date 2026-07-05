@@ -31,7 +31,8 @@ import argparse
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
-from scripts.providers import get_provider
+from scripts.providers.base import ProviderError
+from scripts.providers.calls import call_ai, youtube_get
 from scripts.runtime import RuntimeConfig
 
 runtime = RuntimeConfig(
@@ -49,36 +50,20 @@ from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 # ── Anthropic API — insights generation ──────────────────────────────────────
 def call_claude(prompt: str, max_tokens: int = 1000) -> str:
-    system = f"""You are the analytics strategist for {runtime.CHANNEL_NAME}, a YouTube channel
-about real estate, mortgages, and loans. You analyze performance data and extract
-actionable content insights. Be specific and direct — no generic advice.
-Always tie observations back to content decisions: what to make more of,
-what to change, what to stop doing."""
-
     # Analytics degrades gracefully — a failed insight call must not break the report.
-    try:
-        return get_provider("ai").complete(prompt, system=system, max_tokens=max_tokens)
-    except Exception as e:
-        return f"[Insight generation unavailable: {e}]"
+    return call_ai("analytics", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, on_error="placeholder")
 
 
 # ── YouTube Data API helpers ──────────────────────────────────────────────────
 def yt_request(endpoint: str, params: dict) -> dict:
     """Make a YouTube Data API v3 request."""
-    import requests
-
     if not runtime.YOUTUBE_API_KEY:
         rprint("[red]✗ YOUTUBE_API_KEY not set in .env[/red]")
         sys.exit(1)
 
-    params["key"] = runtime.YOUTUBE_API_KEY
-    url = f"https://www.googleapis.com/youtube/v3/{endpoint}"
-
     try:
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
+        return youtube_get(endpoint, params, api_key=runtime.YOUTUBE_API_KEY, timeout=15)
+    except ProviderError as e:
         rprint(f"[red]✗ YouTube API error: {e}[/red]")
         return {}
 
