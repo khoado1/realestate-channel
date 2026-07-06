@@ -17,6 +17,10 @@ youtube-transcript-api>=0.6.0   # fetch transcripts from YouTube videos (repurpo
 # Dev utilities
 python-dateutil>=2.8.0      # date parsing for scheduling
 
+# Events — Kafka is an alternate `events` provider (EVENTS_PROVIDER=kafka);
+# console is the default and needs no extra dependency.
+kafka-python>=2.0.2
+
 # ============================================================
 # Future / optional — uncomment when needed
 # ============================================================

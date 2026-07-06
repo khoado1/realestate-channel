@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from scripts.providers.calls import call_ai
+from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
 from scripts.utils.markdown import append_once
 
@@ -248,8 +249,11 @@ def append_to_backlog(results: dict[str, list[dict]]):
 
     try:
         backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
-        if not append_once(backlog, "\n".join(lines)):
+        if append_once(backlog, "\n".join(lines)):
+            publish_event("backlog.appended", {"source": "research", "path": str(backlog)})
+        else:
             print("⚠ Skipped duplicate backlog entry (already recorded)")
+            publish_event("backlog.skipped_duplicate", {"source": "research", "path": str(backlog)})
     except Exception as e:
         print(f"⚠ Could not update backlog: {e}")
 

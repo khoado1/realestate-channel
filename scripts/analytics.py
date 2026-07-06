@@ -33,6 +33,7 @@ from pathlib import Path
 
 from scripts.providers.base import ProviderError
 from scripts.providers.calls import call_ai, youtube_get
+from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
 from scripts.utils.markdown import append_once
 
@@ -516,8 +517,10 @@ def append_feedback_to_backlog(analysis: dict):
     try:
         if append_once(backlog, "\n".join(lines)):
             rprint(f"[green]✓ Performance signals appended to backlog.md[/green]")
+            publish_event("backlog.appended", {"source": "analytics", "path": str(backlog)})
         else:
             rprint("[yellow]⚠ Skipped duplicate backlog entry (already recorded)[/yellow]")
+            publish_event("backlog.skipped_duplicate", {"source": "analytics", "path": str(backlog)})
     except Exception as e:
         rprint(f"[yellow]⚠ Could not update backlog: {e}[/yellow]")
 

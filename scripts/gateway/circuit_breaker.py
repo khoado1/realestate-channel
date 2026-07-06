@@ -6,6 +6,7 @@ allowed through; it closes the circuit on success or reopens it on failure.
 """
 
 import time
+from typing import Callable
 
 from scripts.gateway.errors import CircuitOpenError
 from scripts.utils.config import load
@@ -14,6 +15,26 @@ from scripts.utils.logging import get_logger
 CLOSED, OPEN, HALF_OPEN = "closed", "open", "half_open"
 
 log = get_logger(__name__)
+
+# Installed by scripts.providers.events.wire_gateway_events() — kept as a
+# generic sink (rather than importing scripts.providers directly) so the
+# gateway never depends on the providers layer above it.
+_event_sink: Callable[[str, dict], None] | None = None
+
+
+def set_event_sink(fn: Callable[[str, dict], None] | None) -> None:
+    """Install (or clear) the sink invoked on circuit breaker state transitions."""
+    global _event_sink
+    _event_sink = fn
+
+
+def _publish(event: str, payload: dict) -> None:
+    if _event_sink is None:
+        return
+    try:
+        _event_sink(event, payload)
+    except Exception:
+        pass  # publishing must never break the primary call flow
 
 
 class CircuitBreaker:
@@ -36,6 +57,7 @@ class CircuitBreaker:
             self.state = HALF_OPEN
             self.half_open_calls = 0
             log.info("circuit half-open — trial call", extra={"fields": {"host": self.host}})
+            _publish("circuit.half_open", {"host": self.host})
 
         if self.state == HALF_OPEN:
             if self.half_open_calls >= self.half_open_max_calls:
@@ -46,6 +68,7 @@ class CircuitBreaker:
     def record_success(self) -> None:
         if self.state != CLOSED:
             log.info("circuit closed — recovered", extra={"fields": {"host": self.host}})
+            _publish("circuit.closed", {"host": self.host})
         self.state = CLOSED
         self.failures = 0
 
@@ -58,6 +81,7 @@ class CircuitBreaker:
                 "circuit open",
                 extra={"fields": {"host": self.host, "failures": self.failures}},
             )
+            _publish("circuit.open", {"host": self.host, "failures": self.failures})
 
 
 _breakers: dict[str, CircuitBreaker] = {}

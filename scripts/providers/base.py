@@ -92,3 +92,17 @@ class VideoProvider(ABC):
     @abstractmethod
     def status(self, job_id: str) -> VideoStatus:
         """Return the normalized status for ``job_id``. Raises ``ProviderError``."""
+
+
+class EventPublisher(ABC):
+    """Publish domain events (circuit breaker transitions, completed calls,
+    backlog writes, ...) to subscribers — console by default, pluggable to an
+    external bus like Kafka. A different concern from structured logging
+    (scripts/utils/logging.py, machine-readable ops logs) and the call
+    recorder (scripts/providers/http.py, persisted call/cost records): this
+    is for events a downstream subscriber might react to.
+    """
+
+    @abstractmethod
+    def publish(self, event: str, payload: dict) -> None:
+        """Publish ``event`` with ``payload``. Raises ``ProviderError`` on failure."""

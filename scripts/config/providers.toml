@@ -30,3 +30,11 @@ height = 1920
 
 [youtube]
 base_url = "https://www.googleapis.com/youtube/v3"
+
+[kafka]
+bootstrap_servers = ["localhost:9092"]
+topic = "realestate-channel.events"
+api_version = [2, 0, 0]     # avoids an extra broker round-trip to auto-negotiate
+bootstrap_timeout_ms = 5000
+request_timeout_ms = 5000
+max_block_ms = 5000         # cap on how long a publish blocks if the broker is unreachable
