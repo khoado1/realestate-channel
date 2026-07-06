@@ -22,6 +22,7 @@ from pathlib import Path
 
 from scripts.providers.calls import call_ai
 from scripts.runtime import RuntimeConfig
+from scripts.utils.markdown import append_once
 
 runtime = RuntimeConfig(
     paths=["SCRIPTS_DIR", "IDEAS_DIR"],
@@ -235,7 +236,7 @@ def save_results(results: dict[str, list[dict]], topics: list[str]):
 
 
 def append_to_backlog(results: dict[str, list[dict]]):
-    """Append top ideas to the ideas backlog."""
+    """Append top ideas to the ideas backlog. Idempotent — safe to rerun."""
     date_str = datetime.now().strftime("%Y-%m-%d")
     lines = [f"\n## {date_str} research batch\n"]
 
@@ -247,9 +248,8 @@ def append_to_backlog(results: dict[str, list[dict]]):
 
     try:
         backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
-        backlog.parent.mkdir(parents=True, exist_ok=True)
-        with open(backlog, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        if not append_once(backlog, "\n".join(lines)):
+            print("⚠ Skipped duplicate backlog entry (already recorded)")
     except Exception as e:
         print(f"⚠ Could not update backlog: {e}")
 

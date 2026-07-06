@@ -34,6 +34,7 @@ from pathlib import Path
 from scripts.providers.base import ProviderError
 from scripts.providers.calls import call_ai, youtube_get
 from scripts.runtime import RuntimeConfig
+from scripts.utils.markdown import append_once
 
 runtime = RuntimeConfig(
     paths=["ANALYTICS_DIR", "IDEAS_DIR"],
@@ -488,6 +489,7 @@ def append_feedback_to_backlog(analysis: dict):
     """
     Append performance signals to ideas/backlog.md as content feedback.
     This closes the feedback loop — analytics inform future research.
+    Idempotent — safe to rerun.
     """
     backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -512,10 +514,10 @@ def append_feedback_to_backlog(analysis: dict):
         lines.append("")
 
     try:
-        backlog.parent.mkdir(parents=True, exist_ok=True)
-        with open(backlog, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-        rprint(f"[green]✓ Performance signals appended to backlog.md[/green]")
+        if append_once(backlog, "\n".join(lines)):
+            rprint(f"[green]✓ Performance signals appended to backlog.md[/green]")
+        else:
+            rprint("[yellow]⚠ Skipped duplicate backlog entry (already recorded)[/yellow]")
     except Exception as e:
         rprint(f"[yellow]⚠ Could not update backlog: {e}[/yellow]")
 
