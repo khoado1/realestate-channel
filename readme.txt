@@ -1,3 +1,63 @@
+Setup Hard Requirements:
+
+Python 3.10+
+https://www.python.org/downloads/
+
+Git
+https://git-scm.com/install/
+
+uv
+https://docs.astral.sh/uv/getting-started/installation/
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Doppler
+https://dashboard.doppler.com/
+macos: brew install dopplerhq/cli/doppler
+
+win11/wsl2: 
+sudo apt update && sudo apt install -y gnupg curl
+(curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh || wget -t 3 -qO- https://cli.doppler.com/install.sh) | sh
+
+SQLite
+Included with Python
+
+Java
+note: for Kafka
+
+https://www.oracle.com/java/technologies/downloads/#java25
+or
+macos: brew install openjdk@25
+
+win11/wsl2: 
+sudo apt update
+sudo apt install openjdk-26-jdk -y
+
+Kafka
+macos: brew install kafka
+
+win11/wsl2:
+KAFKA=kafka_2.13-4.3.1
+KAFKAF=kafka_2.13-4.3.1.tgz
+# Download the Kafka tarball
+wget https://downloads.apache.org/kafka/4.3.1/$KAFKAF
+
+# Extract the files
+tar -xzf $KAFKAF
+
+# Move the directory to /opt for cleaner organization
+sudo mv $KAFKA /opt/kafka
+
+# Clean up the downloaded file
+rm $KAFKAF
+
+unset KAFKA
+unset KAFKAF
+
+# Format storage for KRaft mode (first-time only — no Zookeeper needed)
+KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
+/opt/kafka/bin/kafka-storage.sh format -t $KAFKA_CLUSTER_ID -c /opt/kafka/config/kraft/server.properties
+
+
 ---
 _Content files live in Google Drive at `$BASE_CONTENT_DIR` — not in this repo._
 
