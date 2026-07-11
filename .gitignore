@@ -21,6 +21,7 @@ venv/
 .venv/
 env/
 *.egg
+.pytest_cache/
 
 # macOS
 .DS_Store

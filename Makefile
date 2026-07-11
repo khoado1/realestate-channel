@@ -2,8 +2,10 @@
 # realestate-channel — Makefile
 # ============================================================
 # Usage: make <target>
-# Requires: Python 3.9+, Doppler CLI for secrets injection
-# Cross-platform: macOS native, Windows via WSL2 or make for Windows
+# Requires: Python 3.10+, Doppler CLI for secrets injection
+# Cross-platform: macOS native. Windows: use WSL2 — these recipes rely on
+# POSIX shell (read -p, $$(date ...), grep -E, awk), which plain "make for
+# Windows" + cmd.exe won't run.
 # ============================================================
 
 PYTHON  := python3
@@ -23,9 +25,22 @@ DOPPLER         := doppler run --project $(DOPPLER_PROJECT) --config $(DOPPLER_C
 install: ## Install Python dependencies via uv
 	uv pip install -r requirements.txt
 
+.PHONY: install-dev
+install-dev: ## Install Python + dev/test dependencies via uv
+	uv pip install -r requirements.txt -r requirements-dev.txt
+
 .PHONY: setup
-setup: install ## First-time setup: install deps + verify environment
+setup: install ## Run-machine setup: install runtime deps + verify environment
 	$(DOPPLER) $(PYTHON) -m scripts.setup_check
+
+.PHONY: setup-dev
+setup-dev: install-dev ## Dev-machine setup: install dev deps + verify environment + run tests
+	$(DOPPLER) $(PYTHON) -m scripts.setup_check
+	$(MAKE) test
+
+.PHONY: test
+test: ## Run the test suite (no Doppler/secrets needed — everything is mocked)
+	$(PYTHON) -m pytest
 
 .PHONY: dirs
 dirs: ## Create Google Drive content folder structure

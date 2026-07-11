@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from scripts.gateway import GatewayError, send
 from scripts.providers.base import ProviderError
+from scripts.providers.events import publish_event
 
 # The call store installs its recorder here. Signature: (dict) -> None.
 _recorder: Callable[[dict], None] | None = None
@@ -42,10 +43,12 @@ def call_context(**meta):
 
 
 def _record(entry: dict) -> None:
+    merged = {**_ctx.get(), **entry}
+    publish_event("provider.call.completed", merged)
     if _recorder is None:
         return
     try:
-        _recorder({**_ctx.get(), **entry})
+        _recorder(merged)
     except Exception:
         # Recording must never break the primary call flow.
         pass

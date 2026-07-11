@@ -33,8 +33,15 @@ from pathlib import Path
 
 from scripts.providers.base import ProviderError
 from scripts.providers.calls import call_ai, youtube_get
+from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
 from scripts.utils.errors import PipelineError
+from scripts.utils.markdown import append_once
+
+runtime = RuntimeConfig(
+    paths=["ANALYTICS_DIR", "IDEAS_DIR"],
+    env=["YOUTUBE_API_KEY", ("YOUTUBE_CHANNEL_ID", "CHANNEL_ID"), "CHANNEL_NAME"],
+)
 
 # ── Thresholds for flagging ───────────────────────────────────────────────────
 RETENTION_FLAG_LOW  = 0.50   # flag if avg view duration < 50% (hook problem)
@@ -486,6 +493,7 @@ def append_feedback_to_backlog(analysis: dict, runtime: RuntimeConfig):
     """
     Append performance signals to ideas/backlog.md as content feedback.
     This closes the feedback loop — analytics inform future research.
+    Idempotent — safe to rerun.
     """
     backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -510,10 +518,12 @@ def append_feedback_to_backlog(analysis: dict, runtime: RuntimeConfig):
         lines.append("")
 
     try:
-        backlog.parent.mkdir(parents=True, exist_ok=True)
-        with open(backlog, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
-        rprint(f"[green]✓ Performance signals appended to backlog.md[/green]")
+        if append_once(backlog, "\n".join(lines)):
+            rprint(f"[green]✓ Performance signals appended to backlog.md[/green]")
+            publish_event("backlog.appended", {"source": "analytics", "path": str(backlog)})
+        else:
+            rprint("[yellow]⚠ Skipped duplicate backlog entry (already recorded)[/yellow]")
+            publish_event("backlog.skipped_duplicate", {"source": "analytics", "path": str(backlog)})
     except Exception as e:
         rprint(f"[yellow]⚠ Could not update backlog: {e}[/yellow]")
 

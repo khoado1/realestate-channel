@@ -17,6 +17,14 @@ youtube-transcript-api>=0.6.0   # fetch transcripts from YouTube videos (repurpo
 # Dev utilities
 python-dateutil>=2.8.0      # date parsing for scheduling
 
+# Events — Kafka is an alternate `events` provider (EVENTS_PROVIDER=kafka);
+# console is the default and needs no extra dependency.
+# Capped below 3.0: that release rewrote kafka-python's networking/protocol
+# layer (new constructor surface), while kafka_events.py targets the 2.x
+# KafkaProducer API. Broker compatibility is unaffected — Kafka is backwards
+# compatible, so the pinned 2.x client still works fine against Kafka 4.x.
+kafka-python>=2.0.2,<3.0.0
+
 # ============================================================
 # Future / optional — uncomment when needed
 # ============================================================

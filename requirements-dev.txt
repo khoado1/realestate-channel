@@ -1,0 +1,8 @@
+# ============================================================
+# realestate-channel — dev/test dependencies
+# ============================================================
+# Install: uv pip install -r requirements.txt -r requirements-dev.txt
+# Run tests: pytest
+# ============================================================
+
+pytest>=8.0.0

@@ -21,8 +21,18 @@ from datetime import datetime
 from pathlib import Path
 
 from scripts.providers.calls import call_ai
+from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
 from scripts.utils.json_extract import parse_json_response
+from scripts.utils.markdown import append_once
+
+runtime = RuntimeConfig(
+    paths=["SCRIPTS_DIR", "IDEAS_DIR"],
+    env=["CHANNEL_NAME"],
+)
+
+# Watchlist file — add topics here for --auto mode
+WATCHLIST_PATH = Path(runtime.IDEAS_DIR) / "watchlist.md"
 
 # ── Rich for pretty output ───────────────────────────────────────────────────
 from scripts.utils.console import RICH, Panel, Table, console
@@ -237,9 +247,11 @@ def append_to_backlog(results: dict[str, list[dict]], runtime: RuntimeConfig):
 
     try:
         backlog = Path(runtime.IDEAS_DIR) / "backlog.md"
-        backlog.parent.mkdir(parents=True, exist_ok=True)
-        with open(backlog, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        if append_once(backlog, "\n".join(lines)):
+            publish_event("backlog.appended", {"source": "research", "path": str(backlog)})
+        else:
+            print("⚠ Skipped duplicate backlog entry (already recorded)")
+            publish_event("backlog.skipped_duplicate", {"source": "research", "path": str(backlog)})
     except Exception as e:
         print(f"⚠ Could not update backlog: {e}")
 

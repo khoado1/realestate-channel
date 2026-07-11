@@ -21,6 +21,7 @@ DEFAULTS: dict[str, str] = {
     "ai": "claude",
     "audio": "elevenlabs",
     "video": "heygen",
+    "events": "console",
 }
 
 
