@@ -31,6 +31,8 @@ height = 1920
 [youtube]
 base_url = "https://www.googleapis.com/youtube/v3"
 
+[postiz]
+base_url = "https://api.postiz.com/public/v1"
 [kafka]
 bootstrap_servers = ["localhost:9092"]
 topic = "realestate-channel.events"

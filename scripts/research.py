@@ -23,6 +23,7 @@ from pathlib import Path
 from scripts.providers.calls import call_ai
 from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
+from scripts.utils.json_extract import parse_json_response
 from scripts.utils.markdown import append_once
 
 runtime = RuntimeConfig(
@@ -69,13 +70,13 @@ DEFAULT_WATCHLIST = [
 ]
 
 # ── Anthropic API call ────────────────────────────────────────────────────────
-def call_claude(prompt: str) -> str:
+def call_claude(prompt: str, runtime: RuntimeConfig) -> str:
     """Call the configured AI provider and return its text response."""
     return call_ai("research", prompt, channel_name=runtime.CHANNEL_NAME, on_error="exit")
 
 
 # ── Research functions ────────────────────────────────────────────────────────
-def research_topic(topic: str) -> list[dict]:
+def research_topic(topic: str, runtime: RuntimeConfig) -> list[dict]:
     """
     Research a topic and return ranked video ideas.
     Returns a list of idea dicts.
@@ -105,20 +106,17 @@ Generate exactly 5 ranked video ideas. Output ONLY a JSON array, no other text:
 
 time_sensitive_data = true if the script will need rates, prices, or stats that need verification before filming."""
 
-    raw = call_claude(prompt)
+    raw = call_claude(prompt, runtime)
 
     try:
-        import json
-        # Strip accidental markdown fences if present
-        clean = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        return json.loads(clean)
+        return parse_json_response(raw)
     except Exception as e:
         print(f"✗ Failed to parse Claude response as JSON: {e}")
         print("Raw response:", raw[:500])
         return []
 
 
-def research_multiple(topics: list[str]) -> dict[str, list[dict]]:
+def research_multiple(topics: list[str], runtime: RuntimeConfig) -> dict[str, list[dict]]:
     """Research multiple topics and return results keyed by topic."""
     results = {}
     for i, topic in enumerate(topics, 1):
@@ -126,7 +124,7 @@ def research_multiple(topics: list[str]) -> dict[str, list[dict]]:
             console.print(f"[dim]({i}/{len(topics)}) Researching:[/dim] [bold]{topic}[/bold]")
         else:
             print(f"({i}/{len(topics)}) Researching: {topic}")
-        results[topic] = research_topic(topic)
+        results[topic] = research_topic(topic, runtime)
     return results
 
 
@@ -181,7 +179,7 @@ def print_results_plain(results: dict[str, list[dict]]):
             print(f"   Demand:   {idea.get('search_demand','')}  |  Time-sensitive: {idea.get('time_sensitive_data','')}")
 
 
-def save_results(results: dict[str, list[dict]], topics: list[str]):
+def save_results(results: dict[str, list[dict]], topics: list[str], runtime: RuntimeConfig):
     """Save research results to markdown file in SCRIPTS_DIR."""
     import json
 
@@ -236,8 +234,8 @@ def save_results(results: dict[str, list[dict]], topics: list[str]):
         return None
 
 
-def append_to_backlog(results: dict[str, list[dict]]):
-    """Append top ideas to the ideas backlog. Idempotent — safe to rerun."""
+def append_to_backlog(results: dict[str, list[dict]], runtime: RuntimeConfig):
+    """Append top ideas to the ideas backlog."""
     date_str = datetime.now().strftime("%Y-%m-%d")
     lines = [f"\n## {date_str} research batch\n"]
 
@@ -258,22 +256,23 @@ def append_to_backlog(results: dict[str, list[dict]]):
         print(f"⚠ Could not update backlog: {e}")
 
 
-def load_watchlist() -> list[str]:
+def load_watchlist(runtime: RuntimeConfig) -> list[str]:
     """Load topics from watchlist.md, falling back to defaults."""
-    if WATCHLIST_PATH.exists():
+    watchlist_path = Path(runtime.IDEAS_DIR) / "watchlist.md"
+    if watchlist_path.exists():
         topics = []
-        for line in WATCHLIST_PATH.read_text().splitlines():
+        for line in watchlist_path.read_text().splitlines():
             line = line.strip().lstrip("-").lstrip("*").strip()
             if line and not line.startswith("#"):
                 topics.append(line)
         return topics if topics else DEFAULT_WATCHLIST
     else:
         # Create default watchlist on first run
-        WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        watchlist_path.parent.mkdir(parents=True, exist_ok=True)
         content = "# Research Watchlist\n# One topic per line. Run: make research --auto\n\n"
         content += "\n".join(f"- {t}" for t in DEFAULT_WATCHLIST)
-        WATCHLIST_PATH.write_text(content)
-        print(f"✓ Created default watchlist at {WATCHLIST_PATH}")
+        watchlist_path.write_text(content)
+        print(f"✓ Created default watchlist at {watchlist_path}")
         return DEFAULT_WATCHLIST
 
 
@@ -299,6 +298,11 @@ def main():
     )
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["SCRIPTS_DIR", "IDEAS_DIR"],
+        env=["CHANNEL_NAME"],
+    )
+
     # ── Validate environment ──
     if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
@@ -309,7 +313,7 @@ def main():
         topics = [args.topic]
         mode = "single"
     elif args.auto:
-        topics = load_watchlist()
+        topics = load_watchlist(runtime)
         mode = "watchlist"
     else:
         # Interactive mode
@@ -325,7 +329,7 @@ def main():
             topics = [t.strip() for t in raw.split(",") if t.strip()]
             mode = "interactive"
         else:
-            topics = load_watchlist()
+            topics = load_watchlist(runtime)
             mode = "watchlist"
 
     if RICH:
@@ -334,7 +338,7 @@ def main():
         print(f"\nMode: {mode} | Topics: {len(topics)}\n")
 
     # ── Run research ──
-    results = research_multiple(topics)
+    results = research_multiple(topics, runtime)
 
     # ── Print results ──
     if RICH:
@@ -344,8 +348,8 @@ def main():
 
     # ── Save results ──
     if not args.no_save:
-        saved_path = save_results(results, topics)
-        append_to_backlog(results)
+        saved_path = save_results(results, topics, runtime)
+        append_to_backlog(results, runtime)
         if saved_path:
             if RICH:
                 console.print(f"[green]✓ Saved:[/green] {saved_path}")

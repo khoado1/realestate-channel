@@ -40,12 +40,7 @@ from pathlib import Path
 from scripts.providers import ProviderError, VideoRequest, get_provider
 from scripts.providers import http as provider_http
 from scripts.runtime import RuntimeConfig
-
-runtime = RuntimeConfig(
-    paths=["SCRIPTS_DIR", "VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"],
-)
-
-RENDER_LOG = Path(runtime.VIDEO_DIR) / "render-log.md" if runtime.VIDEO_DIR else Path("render-log.md")
+from scripts.utils.errors import PipelineError
 
 # Render config (avatars, dimensions, endpoints, auth) lives in the video providers.
 # Poll interval for render status checks (seconds)
@@ -92,7 +87,7 @@ def submit_heygen_video(audio_path: Path, title: str, dry_run: bool = False) -> 
         return job_id
     except ProviderError as e:
         rprint(f"[red]✗ HeyGen submission failed: {e}[/red]")
-        sys.exit(1)
+        raise PipelineError(f"HeyGen submission failed: {e}") from e
 
 
 # ── Shared polling ────────────────────────────────────────────────────────────
@@ -196,7 +191,7 @@ def download_video(url: str, output_path: Path) -> bool:
         return False
 
 
-def load_short_script(audio_path: Path) -> str:
+def load_short_script(audio_path: Path, runtime: RuntimeConfig) -> str:
     """
     Try to find and load the matching Short script for an audio file.
     Looks for a script file with a matching slug in SCRIPTS_DIR.
@@ -224,7 +219,7 @@ def load_short_script(audio_path: Path) -> str:
 
 
 # ── Audio file selection ──────────────────────────────────────────────────────
-def pick_audio_files(mode: str) -> list[Path]:
+def pick_audio_files(mode: str, runtime: RuntimeConfig) -> list[Path]:
     """
     Let user pick audio files from AUDIO_DIR.
     mode: 'longform' | 'short' | 'both' | 'interactive'
@@ -233,13 +228,13 @@ def pick_audio_files(mode: str) -> list[Path]:
     if not audio_dir.exists():
         rprint(f"[red]✗ Audio directory not found: {runtime.AUDIO_DIR}[/red]")
         rprint("[dim]  Run generate_voice.py first: make generate-voice[/dim]")
-        sys.exit(1)
+        raise PipelineError(f"audio directory not found: {runtime.AUDIO_DIR}")
 
     all_files = sorted(audio_dir.glob("*.mp3"), reverse=True)
     if not all_files:
         rprint("[red]✗ No .mp3 files found in audio directory[/red]")
         rprint("[dim]  Run generate_voice.py first: make generate-voice[/dim]")
-        sys.exit(1)
+        raise PipelineError("no .mp3 files found in audio directory")
 
     longform_files = [f for f in all_files if "longform" in f.name]
     short_files    = [f for f in all_files if "short" in f.name]
@@ -266,17 +261,17 @@ def pick_audio_files(mode: str) -> list[Path]:
             selected = [all_files[i] for i in indices]
         except (ValueError, IndexError):
             rprint("[red]✗ Invalid selection[/red]")
-            sys.exit(1)
+            raise PipelineError("invalid audio file selection")
 
     return selected
 
 
-def get_latest_audio(mode: str) -> list[Path]:
+def get_latest_audio(mode: str, runtime: RuntimeConfig) -> list[Path]:
     """Auto-select most recent audio files."""
     audio_dir = Path(runtime.AUDIO_DIR)
     if not audio_dir.exists():
         rprint(f"[red]✗ Audio directory not found: {runtime.AUDIO_DIR}[/red]")
-        sys.exit(1)
+        raise PipelineError(f"audio directory not found: {runtime.AUDIO_DIR}")
 
     all_files      = sorted(audio_dir.glob("*.mp3"), reverse=True)
     longform_files = [f for f in all_files if "longform" in f.name]
@@ -292,13 +287,17 @@ def get_latest_audio(mode: str) -> list[Path]:
 
     if not selected:
         rprint(f"[yellow]⚠ No matching audio files found for mode: {mode}[/yellow]")
-        sys.exit(1)
+        raise PipelineError(f"no matching audio files found for mode: {mode}")
 
     return selected
 
 
 # ── Render log ────────────────────────────────────────────────────────────────
-def append_render_log(entries: list[dict]):
+def render_log_path(runtime: RuntimeConfig) -> Path:
+    return Path(runtime.VIDEO_DIR) / "render-log.md" if runtime.VIDEO_DIR else Path("render-log.md")
+
+
+def append_render_log(entries: list[dict], runtime: RuntimeConfig):
     """Append render job details to render-log.md for status tracking."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"\n## {timestamp}\n"]
@@ -312,9 +311,10 @@ def append_render_log(entries: list[dict]):
         lines.append(f"- **{service}** | job: `{job_id}` | status: {status} | output: {output}{dry}")
 
     lines.append("")
+    render_log = render_log_path(runtime)
     try:
-        RENDER_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(RENDER_LOG, "a", encoding="utf-8") as f:
+        render_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(render_log, "a", encoding="utf-8") as f:
             f.write("\n".join(lines))
     except Exception as e:
         rprint(f"[yellow]⚠ Could not write render log: {e}[/yellow]")
@@ -361,6 +361,10 @@ def main():
                         help="Submit job and exit without polling for completion")
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["SCRIPTS_DIR", "VIDEO_DIR", "AUDIO_DIR", "LONGFORM_DIR", "SHORTS_DIR"],
+    )
+
     # ── Status check mode ──
     if args.status:
         check_job_status(args.status, args.service)
@@ -401,11 +405,11 @@ def main():
     elif args.short and not args.both:
         audio_files.append(("short", Path(args.short)))
     elif args.latest:
-        for f in get_latest_audio(mode):
+        for f in get_latest_audio(mode, runtime):
             ftype = "short" if "short" in f.name else "longform"
             audio_files.append((ftype, f))
     else:
-        for f in pick_audio_files(mode):
+        for f in pick_audio_files(mode, runtime):
             ftype = "short" if "short" in f.name else "longform"
             audio_files.append((ftype, f))
 
@@ -472,7 +476,7 @@ def main():
         # ── Short: HyperFrames ──
         elif ftype == "short":
             out_path   = Path(runtime.SHORTS_DIR) / f"{date_str}-{slug}-short.mp4"
-            short_text = load_short_script(audio_path)
+            short_text = load_short_script(audio_path, runtime)
 
             if not short_text:
                 rprint("[yellow]⚠ Could not find matching Short script — HyperFrames will use audio only[/yellow]")
@@ -500,8 +504,8 @@ def main():
 
     # ── Log ──
     if log_entries:
-        append_render_log(log_entries)
-        rprint(f"\n[dim]✓ Render log updated: {RENDER_LOG}[/dim]")
+        append_render_log(log_entries, runtime)
+        rprint(f"\n[dim]✓ Render log updated: {render_log_path(runtime)}[/dim]")
 
     # ── Summary ──
     if results:
@@ -524,4 +528,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)

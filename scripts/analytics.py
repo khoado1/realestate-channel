@@ -35,6 +35,7 @@ from scripts.providers.base import ProviderError
 from scripts.providers.calls import call_ai, youtube_get
 from scripts.providers.events import publish_event
 from scripts.runtime import RuntimeConfig
+from scripts.utils.errors import PipelineError
 from scripts.utils.markdown import append_once
 
 runtime = RuntimeConfig(
@@ -51,17 +52,17 @@ from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 
 # ── Anthropic API — insights generation ──────────────────────────────────────
-def call_claude(prompt: str, max_tokens: int = 1000) -> str:
+def call_claude(prompt: str, runtime: RuntimeConfig, max_tokens: int = 1000) -> str:
     # Analytics degrades gracefully — a failed insight call must not break the report.
     return call_ai("analytics", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, on_error="placeholder")
 
 
 # ── YouTube Data API helpers ──────────────────────────────────────────────────
-def yt_request(endpoint: str, params: dict) -> dict:
+def yt_request(endpoint: str, params: dict, runtime: RuntimeConfig) -> dict:
     """Make a YouTube Data API v3 request."""
     if not runtime.YOUTUBE_API_KEY:
         rprint("[red]✗ YOUTUBE_API_KEY not set in .env[/red]")
-        sys.exit(1)
+        raise PipelineError("YOUTUBE_API_KEY not set")
 
     try:
         return youtube_get(endpoint, params, api_key=runtime.YOUTUBE_API_KEY, timeout=15)
@@ -81,7 +82,7 @@ def yt_analytics_request(params: dict) -> dict:
 
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
-def fetch_channel_stats() -> dict:
+def fetch_channel_stats(runtime: RuntimeConfig) -> dict:
     """Fetch channel-level statistics."""
     if not runtime.YOUTUBE_CHANNEL_ID:
         rprint("[yellow]⚠ YOUTUBE_CHANNEL_ID not set — using channel search[/yellow]")
@@ -90,7 +91,7 @@ def fetch_channel_stats() -> dict:
     data = yt_request("channels", {
         "part": "statistics,snippet,brandingSettings",
         "id": runtime.YOUTUBE_CHANNEL_ID,
-    })
+    }, runtime)
 
     items = data.get("items", [])
     if not items:
@@ -107,7 +108,7 @@ def fetch_channel_stats() -> dict:
     }
 
 
-def fetch_recent_videos(max_results: int = 20) -> list[dict]:
+def fetch_recent_videos(runtime: RuntimeConfig, max_results: int = 20) -> list[dict]:
     """Fetch recent uploads with stats."""
     if not runtime.YOUTUBE_CHANNEL_ID:
         return []
@@ -116,7 +117,7 @@ def fetch_recent_videos(max_results: int = 20) -> list[dict]:
     channel_data = yt_request("channels", {
         "part": "contentDetails",
         "id": runtime.YOUTUBE_CHANNEL_ID,
-    })
+    }, runtime)
     items = channel_data.get("items", [])
     if not items:
         return []
@@ -135,7 +136,7 @@ def fetch_recent_videos(max_results: int = 20) -> list[dict]:
         "part": "snippet,contentDetails",
         "playlistId": uploads_playlist,
         "maxResults": max_results,
-    })
+    }, runtime)
 
     video_ids = [
         item["contentDetails"]["videoId"]
@@ -148,7 +149,7 @@ def fetch_recent_videos(max_results: int = 20) -> list[dict]:
     stats_data = yt_request("videos", {
         "part": "statistics,snippet,contentDetails",
         "id": ",".join(video_ids),
-    })
+    }, runtime)
 
     videos = []
     for item in stats_data.get("items", []):
@@ -180,16 +181,16 @@ def fetch_recent_videos(max_results: int = 20) -> list[dict]:
     return sorted(videos, key=lambda x: x["published"], reverse=True)
 
 
-def fetch_video_detail(video_id: str) -> dict:
+def fetch_video_detail(video_id: str, runtime: RuntimeConfig) -> dict:
     """Fetch detailed stats for a single video."""
     data = yt_request("videos", {
         "part": "statistics,snippet,contentDetails",
         "id": video_id,
-    })
+    }, runtime)
     items = data.get("items", [])
     if not items:
         rprint(f"[red]✗ Video not found: {video_id}[/red]")
-        sys.exit(1)
+        raise PipelineError(f"video not found: {video_id}")
 
     item     = items[0]
     snippet  = item.get("snippet", {})
@@ -276,7 +277,7 @@ def analyze_videos(videos: list[dict]) -> dict:
     }
 
 
-def generate_insights(channel_stats: dict, analysis: dict, videos: list[dict]) -> str:
+def generate_insights(channel_stats: dict, analysis: dict, videos: list[dict], runtime: RuntimeConfig) -> str:
     """Use Claude to generate actionable insights from the analytics data."""
     prompt = f"""Analyze this YouTube channel performance data and give 3-5 specific,
 actionable content insights. Focus on what to do differently, not just observations.
@@ -302,7 +303,7 @@ Underperforming videos (below 50% of channel avg):
 Give insights as numbered list. Each insight: observation → why it matters → specific action to take.
 Focus on real estate/mortgage content strategy."""
 
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
 # ── Output ────────────────────────────────────────────────────────────────────
@@ -311,6 +312,7 @@ def print_weekly_report(
     videos: list[dict],
     analysis: dict,
     insights: str,
+    runtime: RuntimeConfig,
 ):
     """Print weekly digest to terminal."""
     rpanel(
@@ -404,6 +406,7 @@ def save_report(
     videos: list[dict],
     analysis: dict,
     insights: str,
+    runtime: RuntimeConfig,
     video_detail: dict = None,
 ) -> str:
     """Save analytics report to $ANALYTICS_DIR/YYYY-MM/."""
@@ -486,7 +489,7 @@ def save_report(
     return str(out_path)
 
 
-def append_feedback_to_backlog(analysis: dict):
+def append_feedback_to_backlog(analysis: dict, runtime: RuntimeConfig):
     """
     Append performance signals to ideas/backlog.md as content feedback.
     This closes the feedback loop — analytics inform future research.
@@ -537,6 +540,11 @@ def main():
     parser.add_argument("--no-backlog", action="store_true", help="Skip appending to backlog.md")
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["ANALYTICS_DIR", "IDEAS_DIR"],
+        env=["YOUTUBE_API_KEY", ("YOUTUBE_CHANNEL_ID", "CHANNEL_ID"), "CHANNEL_NAME"],
+    )
+
     # ── Validate ──
     if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
@@ -570,12 +578,12 @@ def main():
 
     # ── Fetch channel stats (both modes) ──
     rprint("\n[dim]Fetching channel stats...[/dim]")
-    channel_stats = fetch_channel_stats()
+    channel_stats = fetch_channel_stats(runtime)
 
     # ── Weekly mode ──
     if mode == "weekly":
         rprint("[dim]Fetching recent videos...[/dim]")
-        videos = fetch_recent_videos(max_results=20)
+        videos = fetch_recent_videos(runtime, max_results=20)
 
         if not videos:
             rprint("[yellow]⚠ No videos found. Check YOUTUBE_CHANNEL_ID in .env[/yellow]")
@@ -585,16 +593,16 @@ def main():
         analysis = analyze_videos(videos)
 
         rprint("[dim]Generating insights...[/dim]\n")
-        insights = generate_insights(channel_stats, analysis, videos)
+        insights = generate_insights(channel_stats, analysis, videos, runtime)
 
-        print_weekly_report(channel_stats, videos, analysis, insights)
+        print_weekly_report(channel_stats, videos, analysis, insights, runtime)
 
         if not args.no_save:
-            path = save_report("weekly", channel_stats, videos, analysis, insights)
+            path = save_report("weekly", channel_stats, videos, analysis, insights, runtime)
             rprint(f"\n[green]✓ Saved:[/green] {path}")
 
         if not args.no_backlog:
-            append_feedback_to_backlog(analysis)
+            append_feedback_to_backlog(analysis, runtime)
 
     # ── Single video mode ──
     elif mode == "video":
@@ -606,7 +614,7 @@ def main():
         video_id = match.group(1) if match else video_input
 
         rprint(f"\n[dim]Fetching video: {video_id}...[/dim]")
-        video = fetch_video_detail(video_id)
+        video = fetch_video_detail(video_id, runtime)
 
         rprint("[dim]Generating insights...[/dim]\n")
         insights_prompt = f"""Analyze this single YouTube video's performance:
@@ -625,14 +633,17 @@ Give 3-5 specific insights about this video's performance:
 - What this suggests about the hook, title, or content format
 - One specific recommendation for the next video on a similar topic"""
 
-        insights = call_claude(insights_prompt)
+        insights = call_claude(insights_prompt, runtime)
 
         print_video_report(video, insights)
 
         if not args.no_save:
-            path = save_report("video", channel_stats, [], {}, insights, video)
+            path = save_report("video", channel_stats, [], {}, insights, runtime, video)
             rprint(f"\n[green]✓ Saved:[/green] {path}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)

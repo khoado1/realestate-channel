@@ -1,0 +1,28 @@
+Here's the breakdown. analytics.py is 639 lines doing seven genuinely distinct jobs, all as flat module-level functions with no boundary between them:
+
+1. YouTube API client (lines 53–233, ~180 lines — the single largest chunk)
+yt_request, yt_analytics_request, fetch_channel_stats, fetch_recent_videos, fetch_video_detail, parse_duration, fetch_search_terms. This is raw HTTP-adjacent data access — building request params, walking nested response dicts, parsing ISO 8601 durations.
+
+2. AI/LLM orchestration (lines 47–51, 273–299, ~32 lines)
+call_claude, generate_insights — prompt construction (a 20-line f-string embedding channel stats and video data) plus the provider call.
+
+3. Domain analysis (lines 236–270, ~35 lines)
+analyze_videos — the only genuinely pure function in the file: takes data in, computes rankings/averages/above-below-avg splits, returns data out. No I/O, no side effects.
+
+4. Terminal presentation (lines 302–393, ~92 lines)
+print_weekly_report, print_video_report — Rich Table/Panel construction, column widths, color codes.
+
+5. Report persistence (lines 395–482, ~88 lines)
+save_report — hand-built markdown generation (different string template per mode) plus the file write.
+
+6. Cross-pipeline feedback write (lines 485–518, ~34 lines)
+append_feedback_to_backlog — writes into ideas/backlog.md, a file that conceptually belongs to research.py's domain (that's where backlog items get read and marked done). analytics.py reaches into another script's data file directly, with no shared interface between them — the same "no layering" problem you'd flag as a bypass if it were an API call instead of a file.
+
+7. CLI orchestration (lines 521–639, ~118 lines)
+main() — argparse, mode dispatch, and the full sequencing of 1–6 for each mode.
+
+Two things I'd flag as evidence this isn't just "long," it's actually drifted:
+
+Dead code. RETENTION_FLAG_LOW, RETENTION_FLAG_HIGH, and EARLY_DROPOFF_SECS (lines 40–42) are declared and never referenced anywhere else in the file. yt_analytics_request and fetch_search_terms are defined and never called from anywhere in the codebase.
+Docstring doesn't match implementation. The module docstring (lines 22–25) claims the feedback loop "flags videos with >50% drop-off in first 30 seconds" and "flags high-retention videos." Nothing in analyze_videos computes drop-off or retention — those require the YouTube Analytics API with OAuth, which was never built (that's exactly what the two dead stub functions were reaching for). What's actually implemented is a much simpler views-relative heuristic (below_avg/above_avg at 0.5x/1.5x average views). The constants and stubs are the fossil of an original design that got partially built and then quietly reduced in scope, without the docstring or unused code getting cleaned up.
+That's the shape of it — one file spanning API client, prompt engineering, pure analysis, two presentation formats, and a cross-module side effect, held together only by main()'s call sequence rather than any real interface. Go ahead — where are you taking this?

@@ -34,12 +34,8 @@ from scripts.providers import ProviderError, get_provider
 from scripts.runtime import RuntimeConfig
 from scripts.utils.config import load
 from scripts.utils.console import rpanel, rprint, rrule
+from scripts.utils.errors import PipelineError
 from scripts.utils.rules import apply_rules
-
-runtime = RuntimeConfig(
-    paths=["SCRIPTS_DIR", "AUDIO_DIR"],
-    env=["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_FALLBACK_VOICE_ID"],
-)
 
 # Warn loudly (but still generate) when ElevenLabs remaining credit, in
 # characters, drops below this — roughly a couple of long-form videos of runway.
@@ -47,7 +43,7 @@ LOW_CREDIT_THRESHOLD = 15000
 
 
 # ── Voice selection ───────────────────────────────────────────────────────────
-def resolve_voice_id(override: str = "") -> tuple[str, str]:
+def resolve_voice_id(runtime: RuntimeConfig, override: str = "") -> tuple[str, str]:
     """
     Resolve which voice ID to use.
     Returns (voice_id, label) where label describes the source.
@@ -62,7 +58,7 @@ def resolve_voice_id(override: str = "") -> tuple[str, str]:
         return runtime.ELEVENLABS_FALLBACK_VOICE_ID, "fallback voice"
 
     rprint("[red]✗ No voice ID configured. Set ELEVENLABS_VOICE_ID or ELEVENLABS_FALLBACK_VOICE_ID in .env[/red]")
-    sys.exit(1)
+    raise PipelineError("no voice ID configured")
 
 
 def list_available_voices() -> list[dict]:
@@ -189,12 +185,12 @@ def check_usage() -> dict:
 
 
 # ── Script file selection ─────────────────────────────────────────────────────
-def pick_script_file() -> Path:
+def pick_script_file(runtime: RuntimeConfig) -> Path:
     """Let user pick from available script files."""
     scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
-        sys.exit(1)
+        raise PipelineError("no script files found")
 
     rprint(f"\n[bold]Available scripts:[/bold]")
     for i, s in enumerate(scripts[:10], 1):
@@ -206,15 +202,15 @@ def pick_script_file() -> Path:
         return scripts[choice - 1]
     except (ValueError, IndexError):
         rprint("[red]✗ Invalid selection.[/red]")
-        sys.exit(1)
+        raise PipelineError("invalid script selection")
 
 
-def get_latest_script() -> Path:
+def get_latest_script(runtime: RuntimeConfig) -> Path:
     """Auto-select most recent script file."""
     scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
-        sys.exit(1)
+        raise PipelineError("no script files found")
     return scripts[0]
 
 
@@ -255,6 +251,11 @@ def main():
     parser.add_argument("--voices",  action="store_true", help="List available voices and exit")
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["SCRIPTS_DIR", "AUDIO_DIR"],
+        env=["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_FALLBACK_VOICE_ID"],
+    )
+
     # ── Validate ──
 
     # ── List voices mode ──
@@ -288,7 +289,7 @@ def main():
                 )
 
     # ── Resolve voice ──
-    voice_id, voice_label = resolve_voice_id(args.voice or "")
+    voice_id, voice_label = resolve_voice_id(runtime, args.voice or "")
     rprint(f"[dim]Voice: {voice_label} ({voice_id})[/dim]\n")
 
     # ── Select script ──
@@ -301,12 +302,12 @@ def main():
                 script_path = sorted(matches)[-1]
             else:
                 rprint(f"[red]✗ Script not found: {args.script}[/red]")
-                sys.exit(1)
+                raise PipelineError(f"script not found: {args.script}")
     elif args.latest:
-        script_path = get_latest_script()
+        script_path = get_latest_script(runtime)
         rprint(f"[dim]Using: {script_path.name}[/dim]")
     else:
-        script_path = pick_script_file()
+        script_path = pick_script_file(runtime)
 
     # ── Determine what to generate ──
     do_longform = not args.short   # default is long-form
@@ -389,4 +390,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)

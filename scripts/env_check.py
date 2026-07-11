@@ -14,13 +14,12 @@ def run() -> int:
     }
 
     for key, value in vars_to_check.items():
-        if value:
-            if "KEY" in key:
-                print(f"  ✓ {key}: {value[:6]}...")
-            else:
-                print(f"  ✓ {key}: {value}")
-        else:
+        if not value:
             print(f"  ✗ {key}: MISSING")
+        elif "KEY" in key:
+            print(f"  ✓ {key}: set")
+        else:
+            print(f"  ✓ {key}: {value}")
 
     return 0
 

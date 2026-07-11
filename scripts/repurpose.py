@@ -28,23 +28,19 @@ from pathlib import Path
 
 from scripts.providers.calls import call_ai, youtube_get
 from scripts.runtime import RuntimeConfig
-
-runtime = RuntimeConfig(
-    paths=["SCRIPTS_DIR", "REPURPOSED_DIR"],
-    env=["CHANNEL_NAME", "YOUTUBE_API_KEY"],
-)
+from scripts.utils.errors import PipelineError
 
 from scripts.utils.console import rpanel, rprint, rrule
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────
-def call_claude(prompt: str, max_tokens: int = 1000) -> str:
+def call_claude(prompt: str, runtime: RuntimeConfig, max_tokens: int = 1000) -> str:
     """Call the configured AI provider and return its text response."""
     return call_ai("repurpose", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, timeout=120, on_error="exit")
 
 
 # ── Input: fetch transcript from YouTube URL ──────────────────────────────────
-def fetch_youtube_transcript(url: str) -> tuple[str, str]:
+def fetch_youtube_transcript(url: str, runtime: RuntimeConfig) -> tuple[str, str]:
     """
     Fetch transcript and title from a YouTube URL.
     Returns (title, transcript_text).
@@ -64,7 +60,7 @@ def fetch_youtube_transcript(url: str) -> tuple[str, str]:
 
     if not vid_id:
         rprint("[red]✗ Could not extract video ID from URL.[/red]")
-        sys.exit(1)
+        raise PipelineError("could not extract video ID from URL")
 
     rprint(f"[dim]Video ID: {vid_id}[/dim]")
 
@@ -105,7 +101,7 @@ def fetch_youtube_transcript(url: str) -> tuple[str, str]:
 
     if not transcript_text:
         rprint("[red]✗ No transcript or description available. Try --transcript or --script mode.[/red]")
-        sys.exit(1)
+        raise PipelineError("no transcript or description available")
 
     return title, transcript_text
 
@@ -115,14 +111,14 @@ def load_transcript_file(path: str) -> tuple[str, str]:
     p = Path(path)
     if not p.exists():
         rprint(f"[red]✗ File not found: {path}[/red]")
-        sys.exit(1)
+        raise PipelineError(f"transcript file not found: {path}")
     text = p.read_text(encoding="utf-8")
     title = p.stem.replace("-", " ").replace("_", " ").title()
     rprint(f"[green]✓ Loaded transcript: {p.name} ({len(text)} chars)[/green]")
     return title, text
 
 
-def load_script_file(path: str) -> tuple[str, str]:
+def load_script_file(path: str, runtime: RuntimeConfig) -> tuple[str, str]:
     """Load a script.py output .md file. Returns (title, script_text)."""
     p = Path(path)
     if not p.exists():
@@ -133,7 +129,7 @@ def load_script_file(path: str) -> tuple[str, str]:
             rprint(f"[dim]Found: {p.name}[/dim]")
         else:
             rprint(f"[red]✗ Script file not found: {path}[/red]")
-            sys.exit(1)
+            raise PipelineError(f"script file not found: {path}")
 
     text = p.read_text(encoding="utf-8")
 
@@ -152,12 +148,12 @@ def load_script_file(path: str) -> tuple[str, str]:
     return title, script_text
 
 
-def pick_latest_script() -> tuple[str, str]:
+def pick_latest_script(runtime: RuntimeConfig) -> tuple[str, str]:
     """Auto-pick the most recent script file from SCRIPTS_DIR."""
     scripts = sorted(Path(runtime.SCRIPTS_DIR).glob("*-script.md"), reverse=True)
     if not scripts:
         rprint("[red]✗ No script files found. Run: make script[/red]")
-        sys.exit(1)
+        raise PipelineError("no script files found")
 
     rprint(f"\n[bold]Available scripts:[/bold]")
     for i, s in enumerate(scripts[:10], 1):
@@ -166,14 +162,14 @@ def pick_latest_script() -> tuple[str, str]:
     rprint("")
     try:
         choice = int(input(f"Pick a number (1-{min(len(scripts),10)}): ").strip())
-        return load_script_file(str(scripts[choice - 1]))
+        return load_script_file(str(scripts[choice - 1]), runtime)
     except (ValueError, IndexError):
         rprint("[red]✗ Invalid selection.[/red]")
-        sys.exit(1)
+        raise PipelineError("invalid script selection")
 
 
 # ── Repurposing generators ────────────────────────────────────────────────────
-def generate_linkedin(title: str, content: str) -> str:
+def generate_linkedin(title: str, content: str, runtime: RuntimeConfig) -> str:
     prompt = f"""Repurpose this YouTube content about "{title}" into a LinkedIn post.
 
 CONTENT:
@@ -189,10 +185,10 @@ Rules:
 - Do NOT start with "I just posted" or reference the YouTube video in the opening
 
 Write the LinkedIn post now, no preamble:"""
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
-def generate_twitter(title: str, content: str) -> str:
+def generate_twitter(title: str, content: str, runtime: RuntimeConfig) -> str:
     prompt = f"""Repurpose this YouTube content about "{title}" into an X/Twitter thread.
 
 CONTENT:
@@ -210,10 +206,10 @@ Rules:
 - Number each tweet: 1/ 2/ 3/ etc.
 
 Write the full thread now, no preamble:"""
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
-def generate_short(title: str, content: str) -> str:
+def generate_short(title: str, content: str, runtime: RuntimeConfig) -> str:
     prompt = f"""Repurpose this YouTube content about "{title}" into a YouTube Short script.
 
 CONTENT:
@@ -228,10 +224,10 @@ Rules:
 - Format with [HOOK], [BODY], [CTA] markers
 
 Write the Short script now, no preamble:"""
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
-def generate_newsletter(title: str, content: str) -> str:
+def generate_newsletter(title: str, content: str, runtime: RuntimeConfig) -> str:
     prompt = f"""Repurpose this YouTube content about "{title}" into a newsletter section.
 
 CONTENT:
@@ -247,7 +243,7 @@ Rules:
 - No sign-off, no "subscribe" CTA — this is a section within a larger newsletter
 
 Write the newsletter section now, no preamble:"""
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
 # ── Save output ───────────────────────────────────────────────────────────────
@@ -258,6 +254,7 @@ def save_repurposed(
     short: str,
     newsletter: str,
     source_mode: str,
+    runtime: RuntimeConfig,
 ) -> str:
     """Save all repurposed content. Returns output directory path."""
     date_str = datetime.now().strftime("%Y-%m-%d")
@@ -368,6 +365,11 @@ def main():
     parser.add_argument("--no-save",   action="store_true", help="Terminal output only")
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["SCRIPTS_DIR", "REPURPOSED_DIR"],
+        env=["CHANNEL_NAME", "YOUTUBE_API_KEY"],
+    )
+
     # ── Validate environment ──
     if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
@@ -382,7 +384,7 @@ def main():
     # ── Get source content ──
     if args.url:
         rprint(f"\n[dim]Fetching transcript from URL...[/dim]")
-        title, content = fetch_youtube_transcript(args.url)
+        title, content = fetch_youtube_transcript(args.url, runtime)
         source_mode = f"YouTube URL: {args.url}"
 
     elif args.transcript:
@@ -390,7 +392,7 @@ def main():
         source_mode = f"Transcript file: {args.transcript}"
 
     elif args.script:
-        title, content = load_script_file(args.script)
+        title, content = load_script_file(args.script, runtime)
         source_mode = f"Script file: {args.script}"
 
     else:
@@ -405,14 +407,14 @@ def main():
         if choice == "1":
             url = input("YouTube URL: ").strip()
             rprint("[dim]Fetching transcript...[/dim]")
-            title, content = fetch_youtube_transcript(url)
+            title, content = fetch_youtube_transcript(url, runtime)
             source_mode = f"YouTube URL: {url}"
         elif choice == "2":
             path = input("Path to transcript file: ").strip()
             title, content = load_transcript_file(path)
             source_mode = f"Transcript file: {path}"
         else:
-            title, content = pick_latest_script()
+            title, content = pick_latest_script(runtime)
             source_mode = "Script file"
 
     rprint(f"\n[bold]Title:[/bold] {title}")
@@ -420,26 +422,29 @@ def main():
 
     # ── Generate all four ──
     rprint("[dim]Generating LinkedIn post...[/dim]")
-    linkedin = generate_linkedin(title, content)
+    linkedin = generate_linkedin(title, content, runtime)
 
     rprint("[dim]Generating X/Twitter thread...[/dim]")
-    twitter = generate_twitter(title, content)
+    twitter = generate_twitter(title, content, runtime)
 
     rprint("[dim]Generating Short script...[/dim]")
-    short = generate_short(title, content)
+    short = generate_short(title, content, runtime)
 
     rprint("[dim]Generating newsletter section...[/dim]\n")
-    newsletter = generate_newsletter(title, content)
+    newsletter = generate_newsletter(title, content, runtime)
 
     # ── Output ──
     print_preview(title, linkedin, twitter, short, newsletter)
 
     # ── Save ──
     if not args.no_save:
-        out_dir = save_repurposed(title, linkedin, twitter, short, newsletter, source_mode)
+        out_dir = save_repurposed(title, linkedin, twitter, short, newsletter, source_mode, runtime)
         rprint(f"\n[green]✓ Saved to:[/green] {out_dir}")
         rprint(f"[dim]  repurposed-combined.md + 4 platform files[/dim]")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)

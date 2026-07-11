@@ -17,7 +17,6 @@ Output:
 """
 
 import sys
-import json
 import argparse
 import re
 from datetime import datetime
@@ -25,25 +24,20 @@ from pathlib import Path
 
 from scripts.providers.calls import call_ai
 from scripts.runtime import RuntimeConfig
-
-runtime = RuntimeConfig(
-    paths=["SCRIPTS_DIR", "IDEAS_DIR"],
-    env=["CHANNEL_NAME"],
-)
-
-BACKLOG_PATH = Path(runtime.IDEAS_DIR) / "backlog.md"
+from scripts.utils.errors import PipelineError
+from scripts.utils.json_extract import parse_json_response
 
 from scripts.utils.console import RICH, Markdown, Prompt, console, rpanel, rprint, rrule
 
 
 # ── Anthropic API ─────────────────────────────────────────────────────────────
-def call_claude(prompt: str, max_tokens: int = 1000) -> str:
+def call_claude(prompt: str, runtime: RuntimeConfig, max_tokens: int = 1000) -> str:
     """Call the configured AI provider and return its text response."""
     return call_ai("script", prompt, channel_name=runtime.CHANNEL_NAME, max_tokens=max_tokens, timeout=120, on_error="exit")
 
 
 # ── Script generation ─────────────────────────────────────────────────────────
-def generate_longform(topic: str, angle: str = "") -> str:
+def generate_longform(topic: str, runtime: RuntimeConfig, angle: str = "") -> str:
     """Generate a 6-10 minute long-form script."""
     angle_note = f"\nSpecific angle to take: {angle}" if angle else ""
 
@@ -67,10 +61,10 @@ Target spoken length: 6-10 minutes (roughly 900-1500 words at natural speaking p
 
 Write the full script now — not an outline, the actual word-for-word script."""
 
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
-def generate_short(topic: str, longform_script: str) -> str:
+def generate_short(topic: str, longform_script: str, runtime: RuntimeConfig) -> str:
     """Generate a 45-60 second Short from the long-form script."""
     prompt = f"""Based on this long-form script about "{topic}", create a YouTube Short script.
 
@@ -91,10 +85,10 @@ Format:
 
 Write the Short script now."""
 
-    return call_claude(prompt)
+    return call_claude(prompt, runtime)
 
 
-def generate_metadata(topic: str, longform_script: str) -> dict:
+def generate_metadata(topic: str, longform_script: str, runtime: RuntimeConfig) -> dict:
     """Generate YouTube description, tags, and thumbnail concept."""
     prompt = f"""Based on this YouTube script about "{topic}", generate metadata.
 
@@ -118,33 +112,33 @@ Return ONLY a JSON object, no preamble, no markdown fences:
   ]
 }}"""
 
-    raw = call_claude(prompt)
+    raw = call_claude(prompt, runtime)
 
     try:
-        clean = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        return json.loads(clean)
+        return parse_json_response(raw)
     except Exception as e:
         rprint(f"[yellow]⚠ Could not parse metadata JSON: {e}[/yellow]")
         return {}
 
 
 # ── Input modes ───────────────────────────────────────────────────────────────
-def pick_from_backlog() -> tuple[str, str]:
+def pick_from_backlog(runtime: RuntimeConfig) -> tuple[str, str]:
     """Let user pick a topic from backlog.md. Returns (topic, angle)."""
-    if not BACKLOG_PATH.exists():
+    backlog_path = Path(runtime.IDEAS_DIR) / "backlog.md"
+    if not backlog_path.exists():
         rprint("[red]✗ backlog.md not found. Run research first: make research[/red]")
-        sys.exit(1)
+        raise PipelineError("backlog.md not found")
 
     # Parse unchecked items from backlog
     items = []
-    for line in BACKLOG_PATH.read_text().splitlines():
+    for line in backlog_path.read_text().splitlines():
         match = re.match(r"^- \[ \] (.+)$", line.strip())
         if match:
             items.append(match.group(1).strip())
 
     if not items:
         rprint("[yellow]⚠ No unchecked items in backlog.md. Add ideas or run research first.[/yellow]")
-        sys.exit(1)
+        raise PipelineError("no unchecked items in backlog.md")
 
     rpanel(f"[bold]Backlog — {len(items)} ideas[/bold]", style="cyan")
     for i, item in enumerate(items, 1):
@@ -156,20 +150,20 @@ def pick_from_backlog() -> tuple[str, str]:
         topic = items[choice - 1]
     except (ValueError, IndexError):
         rprint("[red]✗ Invalid selection.[/red]")
-        sys.exit(1)
+        raise PipelineError("invalid backlog selection")
 
     angle = input("Any specific angle or hook to pursue? (press Enter to skip): ").strip()
     return topic, angle
 
 
-def pick_from_latest_research() -> tuple[str, str]:
+def pick_from_latest_research(runtime: RuntimeConfig) -> tuple[str, str]:
     """Pick a topic from the most recent research report. Returns (topic, angle)."""
     scripts_path = Path(runtime.SCRIPTS_DIR)
     reports = sorted(scripts_path.glob("*-research-*.md"), reverse=True)
 
     if not reports:
         rprint("[red]✗ No research reports found. Run: make research[/red]")
-        sys.exit(1)
+        raise PipelineError("no research reports found")
 
     latest = reports[0]
     rprint(f"[dim]Loading latest research: {latest.name}[/dim]\n")
@@ -183,7 +177,7 @@ def pick_from_latest_research() -> tuple[str, str]:
 
     if not ideas:
         rprint("[red]✗ Could not parse ideas from research report.[/red]")
-        sys.exit(1)
+        raise PipelineError("could not parse ideas from research report")
 
     rpanel(f"[bold]Latest Research — {latest.name}[/bold]", style="cyan")
     for i, idea in enumerate(ideas, 1):
@@ -195,7 +189,7 @@ def pick_from_latest_research() -> tuple[str, str]:
         topic = ideas[choice - 1]
     except (ValueError, IndexError):
         rprint("[red]✗ Invalid selection.[/red]")
-        sys.exit(1)
+        raise PipelineError("invalid research idea selection")
 
     angle = input("Any specific angle or hook? (press Enter to skip): ").strip()
     return topic, angle
@@ -206,7 +200,7 @@ def enter_manually() -> tuple[str, str]:
     topic = input("Enter your video topic: ").strip()
     if not topic:
         rprint("[red]✗ Topic cannot be empty.[/red]")
-        sys.exit(1)
+        raise PipelineError("topic cannot be empty")
     angle = input("Any specific angle or hook? (press Enter to skip): ").strip()
     return topic, angle
 
@@ -240,7 +234,7 @@ def print_script_preview(topic: str, longform: str, short: str, metadata: dict):
             rprint(f"  Emotion:      {thumb.get('emotion','')}")
 
 
-def save_script(topic: str, longform: str, short: str, metadata: dict) -> str:
+def save_script(topic: str, longform: str, short: str, metadata: dict, runtime: RuntimeConfig) -> str:
     """Save full output to a markdown file in SCRIPTS_DIR."""
     date_str = datetime.now().strftime("%Y-%m-%d")
     slug = re.sub(r"[^a-z0-9]+", "-", topic.lower())[:40].strip("-")
@@ -315,13 +309,14 @@ def save_script(topic: str, longform: str, short: str, metadata: dict) -> str:
         return ""
 
 
-def mark_backlog_done(topic: str):
+def mark_backlog_done(topic: str, runtime: RuntimeConfig):
     """Mark the topic as done in backlog.md."""
-    if not BACKLOG_PATH.exists():
+    backlog_path = Path(runtime.IDEAS_DIR) / "backlog.md"
+    if not backlog_path.exists():
         return
-    text = BACKLOG_PATH.read_text()
+    text = backlog_path.read_text()
     updated = text.replace(f"- [ ] {topic}", f"- [x] {topic}")
-    BACKLOG_PATH.write_text(updated)
+    backlog_path.write_text(updated)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -335,6 +330,11 @@ def main():
     group.add_argument("--topic",   type=str,            help="Enter topic directly")
     parser.add_argument("--no-save", action="store_true", help="Terminal output only, no file saved")
     args = parser.parse_args()
+
+    runtime = RuntimeConfig(
+        paths=["SCRIPTS_DIR", "IDEAS_DIR"],
+        env=["CHANNEL_NAME"],
+    )
 
     # ── Validate environment ──
     if not runtime.CONTENT_DIR:
@@ -351,9 +351,9 @@ def main():
     if args.topic:
         topic, angle = args.topic, ""
     elif args.backlog:
-        topic, angle = pick_from_backlog()
+        topic, angle = pick_from_backlog(runtime)
     elif args.latest:
-        topic, angle = pick_from_latest_research()
+        topic, angle = pick_from_latest_research(runtime)
     else:
         # Interactive — offer all three modes
         rprint("\nHow do you want to pick your topic?")
@@ -363,9 +363,9 @@ def main():
         rprint("")
         choice = input("Choice (1/2/3): ").strip()
         if choice == "1":
-            topic, angle = pick_from_backlog()
+            topic, angle = pick_from_backlog(runtime)
         elif choice == "2":
-            topic, angle = pick_from_latest_research()
+            topic, angle = pick_from_latest_research(runtime)
         else:
             topic, angle = enter_manually()
 
@@ -376,28 +376,31 @@ def main():
 
     # ── Generate ──
     rprint("[dim]Generating long-form script...[/dim]")
-    longform = generate_longform(topic, angle)
+    longform = generate_longform(topic, runtime, angle)
 
     rprint("[dim]Generating Short script...[/dim]")
-    short = generate_short(topic, longform)
+    short = generate_short(topic, longform, runtime)
 
     rprint("[dim]Generating metadata...[/dim]\n")
-    metadata = generate_metadata(topic, longform)
+    metadata = generate_metadata(topic, longform, runtime)
 
     # ── Output ──
     print_script_preview(topic, longform, short, metadata)
 
     # ── Save ──
     if not args.no_save:
-        saved_path = save_script(topic, longform, short, metadata)
+        saved_path = save_script(topic, longform, short, metadata, runtime)
         if saved_path:
             rprint(f"\n[green]✓ Saved:[/green] {saved_path}")
 
         # Mark done in backlog if it came from there
         if args.backlog:
-            mark_backlog_done(topic)
+            mark_backlog_done(topic, runtime)
             rprint(f"[green]✓ Marked complete in backlog.md[/green]")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)
