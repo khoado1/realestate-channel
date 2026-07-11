@@ -19,6 +19,7 @@ from scripts.utils.config import load
 from scripts.utils.prompts import build_system_prompt
 
 _YOUTUBE_BASE_URL = load("providers")["youtube"]["base_url"]
+_POSTIZ_BASE_URL = load("providers")["postiz"]["base_url"]
 
 OnError = Literal["raise", "exit", "placeholder"]
 
@@ -59,3 +60,18 @@ def youtube_get(endpoint: str, params: dict, *, api_key: str, timeout: int = 15)
     url = f"{_YOUTUBE_BASE_URL}/{endpoint}"
     with provider_http.call_context(provider="youtube", kind="data", operation=endpoint):
         return provider_http.request_json("GET", url, params={**params, "key": api_key}, timeout=timeout)
+
+
+def postiz_request(
+    method: str, endpoint: str, *, api_key: str, payload: dict | None = None, timeout: int = 30
+) -> dict:
+    """Call the Postiz API. Raises ``ProviderError`` on failure.
+
+    Routes through ``scripts.providers.http`` so it gets the same retry/backoff,
+    circuit-breaking, idempotency keys, and call recording as every registered
+    provider, instead of the raw ``requests`` call it used to make.
+    """
+    url = f"{_POSTIZ_BASE_URL}/{endpoint.lstrip('/')}"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    with provider_http.call_context(provider="postiz", kind="social_publish", operation=endpoint):
+        return provider_http.request_json(method.upper(), url, headers=headers, json=payload, timeout=timeout)

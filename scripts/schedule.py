@@ -29,14 +29,10 @@ import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from scripts.providers.base import ProviderError
+from scripts.providers.calls import postiz_request as _postiz_request
 from scripts.runtime import RuntimeConfig
-
-runtime = RuntimeConfig(
-    paths=["REPURPOSED_DIR"],
-    env=["POSTIZ_API_KEY", "CHANNEL_NAME"],
-)
-
-POSTIZ_BASE_URL = "https://api.postiz.com/public/v1"
+from scripts.utils.errors import PipelineError
 
 # ── Optimal posting schedule (from CLAUDE.md) ────────────────────────────────
 # Days: 0=Monday ... 6=Sunday
@@ -62,42 +58,23 @@ from scripts.utils.console import RICH, Table, console, rpanel, rprint, rrule
 
 
 # ── Postiz API ────────────────────────────────────────────────────────────────
-def postiz_request(method: str, endpoint: str, payload: dict = None) -> dict:
-    """Make a request to the Postiz API."""
-    import requests
-
+def postiz_request(method: str, endpoint: str, runtime: RuntimeConfig, payload: dict = None) -> dict:
+    """Make a request to the Postiz API via the shared provider boundary."""
     if not runtime.POSTIZ_API_KEY:
         rprint("[red]✗ POSTIZ_API_KEY not set in .env[/red]")
-        sys.exit(1)
-
-    headers = {
-        "Authorization": f"Bearer {runtime.POSTIZ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    url = f"{POSTIZ_BASE_URL}/{endpoint.lstrip('/')}"
+        raise PipelineError("POSTIZ_API_KEY not set")
 
     try:
-        resp = requests.request(
-            method.upper(),
-            url,
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.HTTPError as e:
-        rprint(f"[red]✗ Postiz API error {resp.status_code}: {resp.text}[/red]")
-        raise
-    except requests.exceptions.RequestException as e:
-        rprint(f"[red]✗ Postiz connection error: {e}[/red]")
+        return _postiz_request(method, endpoint, api_key=runtime.POSTIZ_API_KEY, payload=payload)
+    except ProviderError as e:
+        rprint(f"[red]✗ Postiz API error: {e}[/red]")
         raise
 
 
-def get_postiz_channels() -> list[dict]:
+def get_postiz_channels(runtime: RuntimeConfig) -> list[dict]:
     """Fetch connected channels from Postiz."""
     try:
-        data = postiz_request("GET", "/channels")
+        data = postiz_request("GET", "/channels", runtime)
         return data.get("channels", data) if isinstance(data, dict) else data
     except Exception:
         return []
@@ -191,7 +168,7 @@ def format_schedule_time(dt: datetime) -> str:
 
 
 # ── Push to Postiz ────────────────────────────────────────────────────────────
-def push_linkedin(content: str, as_draft: bool, dry_run: bool, channel_id: str = "") -> dict:
+def push_linkedin(content: str, as_draft: bool, dry_run: bool, runtime: RuntimeConfig, channel_id: str = "") -> dict:
     """Push LinkedIn post to Postiz."""
     scheduled_at = None if as_draft else format_schedule_time(next_optimal_time("linkedin"))
 
@@ -209,10 +186,10 @@ def push_linkedin(content: str, as_draft: bool, dry_run: bool, channel_id: str =
         return {"dry_run": True, "platform": "linkedin", "status": payload["status"],
                 "scheduled_at": scheduled_at, "content_preview": content[:100]}
 
-    return postiz_request("POST", "/posts", payload)
+    return postiz_request("POST", "/posts", runtime, payload)
 
 
-def push_twitter_thread(tweets: list[str], as_draft: bool, dry_run: bool, channel_id: str = "") -> dict:
+def push_twitter_thread(tweets: list[str], as_draft: bool, dry_run: bool, runtime: RuntimeConfig, channel_id: str = "") -> dict:
     """Push X/Twitter thread to Postiz."""
     scheduled_at = None if as_draft else format_schedule_time(next_optimal_time("twitter", offset_days=1))
 
@@ -233,10 +210,10 @@ def push_twitter_thread(tweets: list[str], as_draft: bool, dry_run: bool, channe
                 "tweet_count": len(tweets), "scheduled_at": scheduled_at,
                 "first_tweet": tweets[0][:100] if tweets else ""}
 
-    return postiz_request("POST", "/posts", payload)
+    return postiz_request("POST", "/posts", runtime, payload)
 
 
-def push_short_to_queue(script: str, as_draft: bool, dry_run: bool) -> dict:
+def push_short_to_queue(script: str, as_draft: bool, dry_run: bool, runtime: RuntimeConfig) -> dict:
     """
     Add Short script to a local queue file.
     Shorts require a video file — this queues the script for Pipeline B / manual recording.
@@ -257,7 +234,7 @@ def push_short_to_queue(script: str, as_draft: bool, dry_run: bool) -> dict:
 
 
 # ── Folder selection ──────────────────────────────────────────────────────────
-def pick_repurposed_folder() -> Path:
+def pick_repurposed_folder(runtime: RuntimeConfig) -> Path:
     """Let user pick from available repurposed folders."""
     folders = sorted(
         [f for f in Path(runtime.REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
@@ -266,7 +243,7 @@ def pick_repurposed_folder() -> Path:
 
     if not folders:
         rprint("[red]✗ No repurposed folders found. Run: make repurpose[/red]")
-        sys.exit(1)
+        raise PipelineError("no repurposed folders found")
 
     rprint(f"\n[bold]Available repurposed batches:[/bold]")
     for i, folder in enumerate(folders[:10], 1):
@@ -279,10 +256,10 @@ def pick_repurposed_folder() -> Path:
         return folders[choice - 1]
     except (ValueError, IndexError):
         rprint("[red]✗ Invalid selection.[/red]")
-        sys.exit(1)
+        raise PipelineError("invalid folder selection")
 
 
-def get_latest_folder() -> Path:
+def get_latest_folder(runtime: RuntimeConfig) -> Path:
     """Auto-select most recent repurposed folder."""
     folders = sorted(
         [f for f in Path(runtime.REPURPOSED_DIR).iterdir() if f.is_dir() and not f.name.startswith(".")],
@@ -290,12 +267,12 @@ def get_latest_folder() -> Path:
     )
     if not folders:
         rprint("[red]✗ No repurposed folders found. Run: make repurpose[/red]")
-        sys.exit(1)
+        raise PipelineError("no repurposed folders found")
     return folders[0]
 
 
 # ── Schedule log ──────────────────────────────────────────────────────────────
-def append_schedule_log(folder: Path, results: list[dict], as_draft: bool):
+def append_schedule_log(folder: Path, results: list[dict], as_draft: bool, runtime: RuntimeConfig):
     """Append a record of this scheduling run to schedule-log.md."""
     log_path = Path(runtime.REPURPOSED_DIR) / "schedule-log.md"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -363,6 +340,11 @@ def main():
     parser.add_argument("--dry-run",  action="store_true", help="Preview without calling Postiz API")
     args = parser.parse_args()
 
+    runtime = RuntimeConfig(
+        paths=["REPURPOSED_DIR"],
+        env=["POSTIZ_API_KEY", "CHANNEL_NAME"],
+    )
+
     # ── Validate environment ──
     if not runtime.CONTENT_DIR:
         print("✗ BASE_CONTENT_DIR not set. Check your .env file.")
@@ -386,10 +368,10 @@ def main():
             rprint(f"[red]✗ Folder not found: {args.dir}[/red]")
             sys.exit(1)
     elif args.latest:
-        folder = get_latest_folder()
+        folder = get_latest_folder(runtime)
         rprint(f"\n[dim]Using: {folder.name}[/dim]")
     else:
-        folder = pick_repurposed_folder()
+        folder = pick_repurposed_folder(runtime)
 
     # ── Check required files ──
     linkedin_file = folder / "linkedin.md"
@@ -420,7 +402,7 @@ def main():
     channel_map = {}
     if not dry_run and runtime.POSTIZ_API_KEY:
         rprint("\n[dim]Fetching Postiz channels...[/dim]")
-        channels = get_postiz_channels()
+        channels = get_postiz_channels(runtime)
         for ch in channels:
             platform = ch.get("type", "").lower()
             channel_map[platform] = ch.get("id", "")
@@ -433,7 +415,7 @@ def main():
     if linkedin_file.exists():
         rprint("[dim]Pushing LinkedIn...[/dim]")
         content = parse_linkedin(linkedin_file)
-        result  = push_linkedin(content, as_draft, dry_run, channel_map.get("linkedin",""))
+        result  = push_linkedin(content, as_draft, dry_run, runtime, channel_map.get("linkedin",""))
         result["platform"] = "linkedin"
         results.append(result)
 
@@ -441,14 +423,14 @@ def main():
         rprint("[dim]Pushing X/Twitter thread...[/dim]")
         tweets = parse_twitter_thread(twitter_file)
         rprint(f"[dim]  {len(tweets)} tweets parsed[/dim]")
-        result = push_twitter_thread(tweets, as_draft, dry_run, channel_map.get("twitter",""))
+        result = push_twitter_thread(tweets, as_draft, dry_run, runtime, channel_map.get("twitter",""))
         result["platform"] = "twitter"
         results.append(result)
 
     if short_file.exists():
         rprint("[dim]Queuing YouTube Short script...[/dim]")
         script = parse_short_script(short_file)
-        result = push_short_to_queue(script, as_draft, dry_run)
+        result = push_short_to_queue(script, as_draft, dry_run, runtime)
         results.append(result)
 
     # ── Print results ──
@@ -457,9 +439,12 @@ def main():
 
     # ── Log ──
     if not dry_run:
-        append_schedule_log(folder, results, as_draft)
+        append_schedule_log(folder, results, as_draft, runtime)
         rprint(f"[dim]✓ Logged to: {runtime.REPURPOSED_DIR}/schedule-log.md[/dim]")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineError:
+        sys.exit(1)
