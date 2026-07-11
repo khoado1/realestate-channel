@@ -1,14 +1,26 @@
+
+win11/wsl2: password: 12345
+
+sudo --login
+
 Setup Hard Requirements:
 
 Python 3.10+
 https://www.python.org/downloads/
 
-Git
-https://git-scm.com/install/
-
 uv
 https://docs.astral.sh/uv/getting-started/installation/
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+#set a new environment
+uv venv
+source .venv/bin/activate
+
+Git
+https://git-scm.com/install/
+sudo apt update
+sudo apt install git
+git --version
 
 Doppler
 https://dashboard.doppler.com/
@@ -30,7 +42,7 @@ macos: brew install openjdk@25
 
 win11/wsl2: 
 sudo apt update
-sudo apt install openjdk-26-jdk -y
+sudo apt install openjdk-25-jdk -y
 
 Kafka
 macos: brew install kafka
@@ -45,10 +57,10 @@ wget https://downloads.apache.org/kafka/4.3.1/$KAFKAF
 tar -xzf $KAFKAF
 
 # Move the directory to /opt for cleaner organization
-sudo mv $KAFKA /opt/kafka
+sudo mv $KAFKAF /opt/kafka
 
-# Clean up the downloaded file
-rm $KAFKAF
+# Clean up the downloaded file (delete folder)
+# rm $KAFKAF
 
 unset KAFKA
 unset KAFKAF
