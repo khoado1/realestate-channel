@@ -53,6 +53,7 @@ $RECYCLE.BIN/
 # Generated content (lives in Google Drive, not git)
 /content/
 /analytics/
+/.data/
 
 # API response caches
 .cache/
